@@ -4,7 +4,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>Ramallah Waste Containers Map - Updated</title>
+  <title>Ramallah Waste Containers Map - Updated with Video</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
 
@@ -38,6 +38,23 @@
         border: 1px solid #ccc;
         border-radius: 3px;
     }
+
+    /* Responsive iframe container for the video */
+    .video-container {
+        position: relative;
+        padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+        height: 0;
+        overflow: hidden;
+        margin-top: 5px;
+        border-radius: 4px;
+    }
+    .video-container iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+    }
   </style>
 </head>
 
@@ -55,12 +72,12 @@
     let zonesLayer;
     let wasteContainersLayer;
     let layerControl; 
-    const allContainersData = []; // لتخزين بيانات الحاويات الأصلية لغرض التصفية
+    const allContainersData = []; 
 
     // Map Initialization Options
     const mapOptions = {
       zoomSnap: 0.5,
-      center: [31.9045, 35.2045], // مركز رام الله
+      center: [31.9045, 35.2045], 
       zoom: 16, 
     };
 
@@ -81,27 +98,26 @@
      * دالة لإنشاء طبقة حاويات النفايات وتطبيق التمييز اللوني والـ Popups.
      */
     function createContainersLayer(data) {
-        // إزالة الطبقة القديمة من الخريطة قبل إنشاء الطبقة الجديدة (للتصفية)
         if (wasteContainersLayer && map.hasLayer(wasteContainersLayer)) {
             map.removeLayer(wasteContainersLayer);
         }
 
         wasteContainersLayer = L.geoJson(data, {
             pointToLayer: function(feature, latlng) {
-                // تحديد اللون بناءً على نوع النفايات لتمييز أفضل
+                // تحديد اللون بناءً على نوع النفايات
                 let color;
                 switch (feature.properties.TYPE_OF_WA) {
                     case 'Household':
-                        color = '#E9573F'; 
+                        color = '#E9573F'; // أحمر داكن
                         break;
                     case 'Recycling':
-                        color = '#4CAF50'; 
+                        color = '#4CAF50'; // أخضر
                         break;
                     case 'Plastics':
-                        color = '#3F51B5'; 
+                        color = '#3F51B5'; // أزرق
                         break;
                     default:
-                        color = '#FBC02D'; 
+                        color = '#FBC02D'; // أصفر ذهبي
                 }
                 
                 return L.circleMarker(latlng, {
@@ -114,23 +130,36 @@
                 });
             },
             onEachFeature: function(feature, layer) {
-                // استخدام Popups لعرض المعلومات بدلاً من alert
+                // تحديد اسم الصورة للحاوية (افتراضاً أنها موجودة في نفس المجلد)
+                let imageName;
+                switch (feature.properties.TYPE_OF_WA) {
+                    case 'Household':
+                        imageName = 'household-bin.jpg'; // افترض وجود هذه الصورة
+                        break;
+                    case 'Recycling':
+                        imageName = 'recycling-bin.jpg'; // افترض وجود هذه الصورة
+                        break;
+                    default:
+                        imageName = 'default-bin.jpg'; // افترض وجود هذه الصورة
+                }
+
+                // محتوى Popup الحاوية (صورة + معلومات)
                 const popupContent = `
                     <h4 style="margin: 5px 0; color: ${layer.options.fillColor}">🧺 معلومات الحاوية</h4>
+                    <img src="${imageName}" alt="صورة الحاوية" style="width:100%; max-height: 120px; object-fit: contain; border-radius: 3px; display: block; margin-bottom: 5px;"><hr style="margin: 5px 0; border-color: #eee;">
                     <strong>النوع:</strong> ${feature.properties.TYPE_OF_WA || 'غير محدد'}<br>
                     <strong>السعة:</strong> ${feature.properties.SIZE_IN_M3 || 'غير محدد'} م³
                 `;
-                layer.bindPopup(popupContent);
+                layer.bindPopup(popupContent, { maxWidth: 280 }); 
             }
         });
         
-        // أضف الطبقة الجديدة إلى الخريطة 
         wasteContainersLayer.addTo(map);
-        updateLayerControl(); // تحديث التحكم بالطبقات
+        updateLayerControl(); 
     }
 
     /**
-     * دالة لتصفية بيانات الحاويات وإعادة رسم الطبقة.
+     * دالة لتصفية بيانات الحاويات وإعادة رسم الطبقة. (لم يتغير)
      */
     function filterContainers(wasteType) {
         if (wasteType === 'All') {
@@ -148,12 +177,10 @@
     }
 
     /**
-     * دالة لإنشاء أو تحديث التحكم بالطبقات (L.control.layers).
+     * دالة لإنشاء أو تحديث التحكم بالطبقات. (لم يتغير)
      */
     function updateLayerControl() {
-        // يتم تنفيذ التحكم بالطبقات فقط إذا كانت كلتا الطبقتين جاهزتين
         if (zonesLayer && wasteContainersLayer) {
-            // إزالة التحكم القديم إذا كان موجوداً
             if (layerControl) {
                 map.removeControl(layerControl);
             }
@@ -171,10 +198,9 @@
     }
     
     /**
-     * دالة لإضافة عنصر تحكم التصفية المخصص (Dropdown).
+     * دالة لإضافة عنصر تحكم التصفية المخصص (Dropdown). (لم يتغير)
      */
     function addFilterControl() {
-        // استخراج الأنواع الفريدة
         const wasteTypes = ['All']; 
         allContainersData.features.forEach(feature => {
             const type = feature.properties.TYPE_OF_WA;
@@ -202,7 +228,8 @@
                 };
 
                 return container;
-            }
+            },
+            onRemove: function(map) {}
         });
 
         new FilterControl({ position: 'topright' }).addTo(map);
@@ -212,7 +239,7 @@
     // 3. تحميل بيانات GeoJSON
     // ----------------------------------------------------
 
-    // تحميل مناطق رام الله (Zones)
+    // تحميل مناطق رام الله (Zones) - تم إضافة دعم الفيديو هنا
     $.getJSON("RamallahZones.json", function(RZ) {
       zonesLayer = L.geoJson(RZ, {
         style: function(feature) {
@@ -225,31 +252,42 @@
           };
         },
         onEachFeature: function(feature, layer) {
-          // استخدام Popups بدلاً من alert
-          const popupContent = `
-              <h4 style="margin: 5px 0;">📍 منطقة رام الله</h4>
-              <strong>الاسم:</strong> ${feature.properties.NAME || 'غير محدد'}
-          `;
-          layer.bindPopup(popupContent);
+            // **الميزة الجديدة: دمج الفيديو**
+            // يمكنك تعيين Video ID لكل منطقة في ملف RamallahZones.json 
+            // نستخدم هنا مثالين افتراضيين:
+            let videoId = feature.properties.NAME === 'Zone A' ? 'k_6kS8N2j2o' : 'lE2D0qWnS-E'; // مثالين لرموز فيديو
+
+            // محتوى Popup المنطقة (يشمل الفيديو)
+            const popupContent = `
+                <h4 style="margin: 5px 0;">📍 منطقة رام الله: ${feature.properties.NAME || 'غير محدد'}</h4>
+                <div class="video-container">
+                    <iframe src="https://www.youtube.com/embed/${videoId}" 
+                            title="فيديو توضيحي للمنطقة" 
+                            frameborder="0" 
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                            allowfullscreen>
+                    </iframe>
+                </div>
+            `;
+            // تم زيادة عرض الـ Popup لاستيعاب الفيديو بشكل أفضل
+            layer.bindPopup(popupContent, { maxWidth: 350 }); 
         }
       });
       zonesLayer.addTo(map); 
-      updateLayerControl(); // تحديث التحكم بالطبقات
+      updateLayerControl(); 
     }).fail(function() {
         console.error("فشل تحميل RamallahZones.json");
     });
 
     // تحميل حاويات النفايات (Waste Containers)
     $.getJSON("wasteContainer.json", function(WC) {
-      // تخزين البيانات الأصلية للتصفية
       allContainersData.features = WC.features;
       allContainersData.type = WC.type;
       
-      // إنشاء وعرض الطبقة الابتدائية لجميع الحاويات
       createContainersLayer(allContainersData); 
       
-      updateLayerControl(); // تحديث التحكم بالطبقات
-      addFilterControl(); // إضافة تحكم التصفية
+      updateLayerControl(); 
+      addFilterControl(); 
       
     }).fail(function() {
         console.error("فشل تحميل wasteContainer.json");
@@ -259,3 +297,7 @@
 </body>
 
 </html>
+</body>
+
+</html>
+
