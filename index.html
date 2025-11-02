@@ -1,55 +1,196 @@
-// ... داخل $.getJSON("RamallahZones.json", function(RZ) { ...
-zonesLayer = L.geoJson(RZ, { /* ... style and onEachFeature ... */ });
-// zonesLayer.addTo(map); // لا تضفها مباشرة
+<!DOCTYPE html>
 
-// ... داخل $.getJSON("wasteContainer.json", function(WC) { ...
-wasteContainersLayer = L.geoJson(WC, { /* ... pointToLayer and onEachFeature ... */ });
-// wasteContainersLayer.addTo(map); // لا تضفها مباشرة
+<html lang="en">
 
-// إضافة التحكم بالطبقات
-const baseLayers = {};
-const overlays = {
-  "مناطق رام الله": zonesLayer, // تم تغيير الاسم
-  "حاويات النفايات": wasteContainersLayer // تم تغيير الاسم
-};
-L.control.layers(baseLayers, overlays).addTo(map);
+<head>
+  <meta charset="utf-8" />
+  <title>Ramallah Waste Containers Map</title>
 
-// إضافة الطبقات افتراضياً (لأنها لم تضف من قبل)
-zonesLayer.addTo(map);
-wasteContainersLayer.addTo(map);
-3. 🔍 إضافة التصفية والتصنيف المتقدم
-هذه ميزة قوية تزيد من فائدة الخريطة:
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
 
-تصفية حاويات النفايات حسب النوع:
+  <style>
+    body {
+      margin: 0px;
+      height: 100%;
+      width: 100%;
+    }
 
-أضف قائمة منسدلة (Dropdown) أو أزرار أعلى الخريطة تسمح للمستخدم بعرض حاويات نوع معين فقط (مثل "نفايات منزلية"، "بلاستيك"، إلخ) بناءً على قيمة TYPE_OF_WA.
+    #map {
+      position: absolute;
+      width: 100%;
+      top: 0px;
+      bottom: 0;
+    }
+    
+    /* Style for the filter dropdown control */
+    .leaflet-control-filter {
+        background-color: white;
+        padding: 6px 10px;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+        margin-right: 10px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    .leaflet-control-filter strong {
+        color: #333;
+    }
+    .leaflet-control-filter select {
+        padding: 4px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+    }
+  </style>
+</head>
 
-يمكنك تحقيق ذلك باستخدام مكتبة Leaflet.FeatureGroup.SubGroup لتنظيم الماركرز، أو بإعادة رسم طبقة الحاويات بعد تصفية بيانات GeoJSON يدويًا في JavaScript.
+<body>
+  <div id="map"></div>
 
-4. 📈 ربط الميزات بالبيانات الإحصائية
-إذا كان لديك بيانات إحصائية أخرى عن كل منطقة (مثل عدد السكان، عدد الحاويات في المنطقة، إلخ)، اعرضها:
+  <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
 
-إظهار إحصائيات المنطقة عند النقر:
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-اجعل نافذة الـ Popup للمناطق تعرض ليس فقط اسم المنطقة، بل أيضًا إجمالي عدد الحاويات داخلها. يتطلب هذا إجراء عملية حسابية بسيطة في JavaScript لتحديد كم حاوية تقع ضمن كل مضلع (polygon) للمنطقة.
+  <script>
+    // ----------------------------------------------------
+    // 1. تعريف المتغيرات الأساسية
+    // ----------------------------------------------------
+    let zonesLayer;
+    let wasteContainersLayer;
+    let layerControl; 
+    const allContainersData = []; // لتخزين بيانات الحاويات الأصلية لغرض التصفية
 
-5. 🏠 إضافة خريطة خلفية أخرى (Base Maps)
-امنح المستخدم خيار التبديل بين خلفيات الخريطة، مثل خريطة الشوارع أو صور الأقمار الصناعية (إذا كانت متوفرة بترخيص مجاني).
+    // Map Initialization Options
+    const mapOptions = {
+      zoomSnap: 0.5,
+      center: [31.9045, 35.2045], // مركز رام الله
+      zoom: 16, 
+    };
 
-يمكن تعريف طبقة خلفية أخرى مثل:
+    const map = L.map("map", mapOptions);
 
-JavaScript
+    // Dark Tile Layer (Default Base Map)
+    const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20
+    }).addTo(map);
 
-const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-});
-// وتضمينها في baseLayers في التحكم بالطبقات.
-const baseLayers = {
-  "خريطة داكنة (افتراضية)": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {/* ... */}),
-  "خريطة الشوارع": osmLayer
-};
-أي من هذه الأفكار تود أن أساعدك في تفصيل كيفية تطبيقها في الكود؟
+    // ----------------------------------------------------
+    // 2. الدوال المساعدة للتحكم والتصفية
+    // ----------------------------------------------------
 
+    /**
+     * دالة لإنشاء طبقة حاويات النفايات وتطبيق التمييز اللوني والـ Popups.
+     * وتستخدم لإعادة الرسم عند التصفية.
+     */
+    function createContainersLayer(data) {
+        // إزالة الطبقة القديمة من الخريطة قبل إنشاء الطبقة الجديدة (للتصفية)
+        if (wasteContainersLayer && map.hasLayer(wasteContainersLayer)) {
+            map.removeLayer(wasteContainersLayer);
+        }
 
-</html>
+        wasteContainersLayer = L.geoJson(data, {
+            pointToLayer: function(feature, latlng) {
+                // تحديد اللون بناءً على نوع النفايات
+                let color;
+                switch (feature.properties.TYPE_OF_WA) {
+                    case 'Household':
+                        color = '#E9573F'; // أحمر داكن (للمنزلية)
+                        break;
+                    case 'Recycling':
+                        color = '#4CAF50'; // أخضر (لإعادة التدوير)
+                        break;
+                    case 'Plastics':
+                        color = '#3F51B5'; // أزرق (للبلاستيك)
+                        break;
+                    default:
+                        color = '#FBC02D'; // أصفر ذهبي (لغير المحدد)
+                }
+                
+                return L.circleMarker(latlng, {
+                    radius: 7, // حجم أكبر قليلاً
+                    fillColor: color,
+                    color: color,
+                    weight: 1.5,
+                    opacity: 1,
+                    fillOpacity: 0.85
+                });
+            },
+            onEachFeature: function(feature, layer) {
+                // استخدام Popups لعرض المعلومات
+                const popupContent = `
+                    <h4 style="margin: 5px 0; color: ${layer.options.fillColor}">🧺 معلومات الحاوية</h4>
+                    <strong>النوع:</strong> ${feature.properties.TYPE_OF_WA || 'غير محدد'}<br>
+                    <strong>السعة:</strong> ${feature.properties.SIZE_IN_M3 || 'غير محدد'} م³
+                `;
+                layer.bindPopup(popupContent);
+            }
+        });
+        
+        // أضف الطبقة الجديدة إلى الخريطة 
+        wasteContainersLayer.addTo(map);
+        // تحديث التحكم بالطبقات ليعكس الطبقة الجديدة
+        updateLayerControl();
+    }
 
+    /**
+     * دالة لتصفية بيانات الحاويات وإعادة رسم الطبقة.
+     */
+    function filterContainers(wasteType) {
+        if (wasteType === 'All') {
+            createContainersLayer(allContainersData);
+        } else {
+            const filteredFeatures = allContainersData.features.filter(feature => 
+                feature.properties.TYPE_OF_WA === wasteType
+            );
+            const filteredGeoJson = {
+                "type": "FeatureCollection",
+                "features": filteredFeatures
+            };
+            createContainersLayer(filteredGeoJson);
+        }
+    }
+
+    /**
+     * دالة لإنشاء أو تحديث التحكم بالطبقات في الخريطة.
+     */
+    function updateLayerControl() {
+        // يتم تنفيذ التحكم بالطبقات فقط إذا كانت كلتا الطبقتين جاهزتين
+        if (zonesLayer && wasteContainersLayer) {
+            if (layerControl) {
+                map.removeControl(layerControl);
+            }
+
+            const baseLayers = {
+              "الخريطة الداكنة (CARTO)": darkTileLayer
+            };
+            const overlays = {
+              "مناطق رام الله 🏙️": zonesLayer,
+              "حاويات النفايات 🗑️": wasteContainersLayer
+            };
+
+            layerControl = L.control.layers(baseLayers, overlays).addTo(map);
+        }
+    }
+    
+    /**
+     * دالة لإضافة عنصر تحكم التصفية المخصص (Dropdown).
+     */
+    function addFilterControl() {
+        // استخراج الأنواع الفريدة من البيانات
+        const wasteTypes = ['All']; 
+        allContainersData.features.forEach(feature => {
+            const type = feature.properties.TYPE_OF_WA;
+            if (type && !wasteTypes.includes(type)) {
+                wasteTypes.push(type);
+            }
+        });
+
+        // إنشاء عنصر تحكم Leaflet مخصص
+        const FilterControl = L.Control.extend({
+            onAdd: function(map) {
+                const container = L.DomUtil.create('div', 'leaflet-control-filter');
+                container.innerHTML = '<strong>تصفية الحاويات: </strong>';
+                
+                const select = L.Dom
