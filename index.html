@@ -1,11 +1,12 @@
 <!DOCTYPE html>
+<!DOCTYPE html>
 
 <html lang="en">
 
 <head>
   <meta charset="utf-8" />
 
-  <title>Ramallah Waste Containers - Spatial Analysis</title>
+  <title>Ramallah Waste Containers - Final Code</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
 
@@ -40,22 +41,22 @@
     // ----------------------------------------------------
     // 1. تعريف المتغيرات الأساسية
     // ----------------------------------------------------
-    // يجب تعريف الطبقات هنا لتكون متاحة للتحكم بالطبقات
     let zonesLayer; 
     let wasteContainersLayer;
-    let allContainersFeatureCollection = null; // لتخزين بيانات الحاويات Turf
+    let allContainersFeatureCollection = null; // لتخزين بيانات الحاويات لـ Turf
+    let layerControl;
 
     // define map options
     const mapOptions = {
-      zoomSnap: 0.5,  // this allows fractional zooming
-      center: [31.9045, 35.2045], // center the map on the coordinates for Ramallah
-      zoom: 17.5, // set the initial zoom
+      zoomSnap: 0.5,
+      center: [31.9045, 35.2045], 
+      zoom: 17.5, 
     };
 
     // define the map with the options above
     const map = L.map("map", mapOptions);
 
-    // add a base map to the map
+    // Default Base Map
     const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       subdomains: 'abcd',
@@ -63,10 +64,45 @@
     }).addTo(map);
 
     // ----------------------------------------------------
-    // 2. تحميل البيانات
+    // 2. الدوال المساعدة
     // ----------------------------------------------------
 
-    // تحميل حاويات النفايات أولاً لتكون متاحة لحساب المنطقة
+    // دالة لتحديث أو إنشاء التحكم بالطبقات
+    function updateLayerControl() {
+        if (zonesLayer && wasteContainersLayer) {
+            // إزالة التحكم القديم إذا كان موجوداً لتجنب التكرار
+            if (layerControl) {
+                map.removeControl(layerControl);
+            }
+
+            const baseLayers = {
+              "الخريطة الداكنة": darkTileLayer
+            };
+            const overlays = {
+              "مناطق رام الله 🏙️": zonesLayer,
+              "حاويات النفايات 🗑️": wasteContainersLayer
+            };
+
+            layerControl = L.control.layers(baseLayers, overlays).addTo(map);
+        }
+    }
+
+    // الدالة الافتراضية لستايل المنطقة
+    function defaultZoneStyle(feature) {
+        return {
+            fillColor: "yellow",
+            fillOpacity: 0.3,
+            color: "yellow",
+            weight: 1.0,
+            opacity: 0.7
+        };
+    }
+    
+    // ----------------------------------------------------
+    // 3. تحميل البيانات
+    // ----------------------------------------------------
+
+    // تحميل حاويات النفايات أولاً
     $.getJSON("wasteContainer.json", function(WC) {
         // تخزين بيانات الحاويات في متغير Turf.js لاستخدامها في التحليل
         allContainersFeatureCollection = turf.featureCollection(WC.features);
@@ -83,7 +119,7 @@
                 });
             },
             onEachFeature: function(feature, layer) {
-                // تحديث لـ Popup بدلاً من alert
+                // استخدام Popup لعرض نوع الحاوية
                 const content = `<strong>نوع النفايات:</strong> ${feature.properties.TYPE_OF_WA || 'غير محدد'}`;
                 layer.bindPopup(content);
             }
@@ -93,75 +129,71 @@
         // بعد تحميل الحاويات، قم بتحميل المناطق
         loadZones();
         updateLayerControl();
+    }).fail(function() {
+        console.error("فشل تحميل wasteContainer.json");
     });
 
     // دالة منفصلة لتحميل المناطق
     function loadZones() {
         $.getJSON("RamallahZones.json", function(RZ) {
             zonesLayer = L.geoJson(RZ, {
-                style: function(feature) {
-                    return {
-                        fillColor: "yellow",
-                        fillOpacity: 0.3,
-                        color: "yellow",
-                        weight: 1.0,
-                        opacity: 0.7
-                    };
-                },
+                style: defaultZoneStyle, // استخدام الستايل الافتراضي
                 onEachFeature: function(feature, layer) {
+                    
+                    // ---------------------------------------------------
+                    // **الميزة الجديدة 1: حساب عدد الحاويات عند النقر**
+                    // ---------------------------------------------------
                     layer.on('click', function(e) {
-                        // ---------------------------------------------------
-                        // **الميزة الجديدة: حساب عدد الحاويات داخل المنطقة**
-                        // ---------------------------------------------------
                         if (allContainersFeatureCollection) {
-                            // استخدام Turf.js لتحديد النقاط داخل هذا المضلع
                             const zonePolygon = turf.feature(feature.geometry);
                             const pointsInZone = turf.pointsWithinPolygon(allContainersFeatureCollection, zonePolygon);
                             const count = pointsInZone.features.length;
 
-                            // عرض النتيجة باستخدام Popup بدلاً من alert لنتيجة أجمل
                             const popupContent = `
-                                <h4>📍 معلومات المنطقة</h4>
+                                <h4>📍 منطقة رام الله</h4>
                                 <strong>الاسم:</strong> ${feature.properties.NAME || 'غير محدد'}<br>
-                                <strong>عدد الحاويات:</strong> <span style="font-weight: bold; color: green; font-size: 1.1em;">${count}</span>
+                                <hr style="margin: 5px 0;">
+                                <strong>عدد الحاويات الكلي:</strong> <span style="font-weight: bold; color: green; font-size: 1.1em;">${count}</span>
                             `;
+                            // فتح Popup عند النقر
                             layer.bindPopup(popupContent).openPopup(e.latlng);
                         } else {
                             alert("Zone Name: " + feature.properties.NAME);
                         }
-                        // ---------------------------------------------------
                     });
+
+                    // ---------------------------------------------------
+                    // **الميزة الجديدة 2: تمييز المنطقة عند المرور فوقها (Hover Effect)**
+                    // ---------------------------------------------------
+                    layer.on('mouseover', function(e) {
+                        layer.setStyle({
+                            weight: 3,
+                            color: '#FF0000', // لون أحمر ساطع عند المرور
+                            fillOpacity: 0.5 
+                        });
+                        // إضافة معلومات سريعة للمنطقة عند المرور
+                        layer.openTooltip(); 
+                    });
+
+                    layer.on('mouseout', function(e) {
+                        // العودة إلى الستايل الافتراضي عند الابتعاد
+                        zonesLayer.resetStyle(layer);
+                    });
+
+                    // إضافة Tooltip يعرض اسم المنطقة عند المرور (لا يحتاج لنقر)
+                    layer.bindTooltip(feature.properties.NAME, { 
+                        permanent: false, 
+                        direction: 'center', 
+                        className: 'zone-tooltip'
+                    });
+                    
                 }
             });
             zonesLayer.addTo(map);
             updateLayerControl();
+        }).fail(function() {
+            console.error("فشل تحميل RamallahZones.json");
         });
-    }
-
-    // ----------------------------------------------------
-    // 3. التحكم بالطبقات (تم الإصلاح)
-    // ----------------------------------------------------
-
-    // دالة لتحديث أو إنشاء التحكم بالطبقات
-    function updateLayerControl() {
-        if (zonesLayer && wasteContainersLayer) {
-            // إزالة التحكم القديم إذا كان موجوداً
-            map.eachControl(function(control) {
-                if (control._container && control._container.className.includes('leaflet-control-layers')) {
-                    map.removeControl(control);
-                }
-            });
-
-            const baseLayers = {
-              "الخريطة الداكنة": darkTileLayer
-            };
-            const overlays = {
-              "مناطق رام الله 🏙️": zonesLayer,
-              "حاويات النفايات 🗑️": wasteContainersLayer
-            };
-
-            L.control.layers(baseLayers, overlays).addTo(map);
-        }
     }
     
   </script>
