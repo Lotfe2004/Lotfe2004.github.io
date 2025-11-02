@@ -1,349 +1,55 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Ramallah Waste Containers - Enhanced Map</title>
+// ... داخل $.getJSON("RamallahZones.json", function(RZ) { ...
+zonesLayer = L.geoJson(RZ, { /* ... style and onEachFeature ... */ });
+// zonesLayer.addTo(map); // لا تضفها مباشرة
 
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
-  <style>
-    body { margin: 0; height: 100%; width: 100%; }
-    #map { position: absolute; width: 100%; height: 100%; }
-    .info { background: rgba(255,255,255,0.8); padding: 6px 8px; font: 14px/16px Arial, Helvetica, sans-serif; border-radius: 5px; }
-    .filter-box { position: absolute; top: 10px; left: 10px; z-index: 1000; background: rgba(255,255,255,0.8); padding: 5px; border-radius: 5px; }
-    .filter-box button { margin: 2px; }
-    #searchZone { position: absolute; top: 70px; left: 10px; z-index: 1000; padding: 5px; border-radius: 5px; border: 1px solid #ccc; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
+// ... داخل $.getJSON("wasteContainer.json", function(WC) { ...
+wasteContainersLayer = L.geoJson(WC, { /* ... pointToLayer and onEachFeature ... */ });
+// wasteContainersLayer.addTo(map); // لا تضفها مباشرة
 
-  <!-- فلتر الحاويات -->
-  <div class="filter-box">
-    <button onclick="filterContainers('all')">الكل</button>
-    <button onclick="filterContainers('Iron')">حديد</button>
-    <button onclick="filterContainers('Plastic')">بلاستيك</button>
-    <button onclick="filterContainers('Glass')">زجاج</button>
-  </div>
+// إضافة التحكم بالطبقات
+const baseLayers = {};
+const overlays = {
+  "مناطق رام الله": zonesLayer, // تم تغيير الاسم
+  "حاويات النفايات": wasteContainersLayer // تم تغيير الاسم
+};
+L.control.layers(baseLayers, overlays).addTo(map);
 
-  <!-- صندوق البحث -->
-  <input type="text" id="searchZone" placeholder="ابحث عن المنطقة">
+// إضافة الطبقات افتراضياً (لأنها لم تضف من قبل)
+zonesLayer.addTo(map);
+wasteContainersLayer.addTo(map);
+3. 🔍 إضافة التصفية والتصنيف المتقدم
+هذه ميزة قوية تزيد من فائدة الخريطة:
 
-  <!-- Libraries -->
-  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+تصفية حاويات النفايات حسب النوع:
 
-  <script>
-    const map = L.map("map", { center: [31.9045, 35.2045], zoom: 15 });
+أضف قائمة منسدلة (Dropdown) أو أزرار أعلى الخريطة تسمح للمستخدم بعرض حاويات نوع معين فقط (مثل "نفايات منزلية"، "بلاستيك"، إلخ) بناءً على قيمة TYPE_OF_WA.
 
-    // إنشاء panes لتحديد ترتيب الطبقات
-    map.createPane('zonesPane');
-    map.getPane('zonesPane').style.zIndex = 400; // تحت الحاويات
-    map.createPane('containersPane');
-    map.getPane('containersPane').style.zIndex = 500; // فوق المناطق
+يمكنك تحقيق ذلك باستخدام مكتبة Leaflet.FeatureGroup.SubGroup لتنظيم الماركرز، أو بإعادة رسم طبقة الحاويات بعد تصفية بيانات GeoJSON يدويًا في JavaScript.
 
-    // طبقات الخلفية
-    const baseLayers = {
-      "خريطة داكنة": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO' }),
-      "خريطة الشوارع": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }),
-      "أقمار صناعية": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '&copy; Esri & OpenStreetMap contributors' })
-    };
-    baseLayers["خريطة داكنة"].addTo(map);
+4. 📈 ربط الميزات بالبيانات الإحصائية
+إذا كان لديك بيانات إحصائية أخرى عن كل منطقة (مثل عدد السكان، عدد الحاويات في المنطقة، إلخ)، اعرضها:
 
-    let wasteContainersLayer, zonesLayer, containerData;
+إظهار إحصائيات المنطقة عند النقر:
 
-    // تحميل بيانات المناطق
-    $.getJSON("RamallahZones.json", function(RZ) {
-      zonesLayer = L.geoJson(RZ, {
-        style: styleZone,
-        pane: 'zonesPane',
-        onEachFeature: function(feature, layer) {
-          layer.on('click', function() { showZoneInfo(layer, feature); });
-        }
-      }).addTo(map);
-    });
+اجعل نافذة الـ Popup للمناطق تعرض ليس فقط اسم المنطقة، بل أيضًا إجمالي عدد الحاويات داخلها. يتطلب هذا إجراء عملية حسابية بسيطة في JavaScript لتحديد كم حاوية تقع ضمن كل مضلع (polygon) للمنطقة.
 
-    // تحميل بيانات الحاويات
-    $.getJSON("wasteContainer.json", function(WC) {
-      containerData = WC;
-      wasteContainersLayer = L.geoJson(WC, {
-        pointToLayer: pointToLayerFunction,
-        onEachFeature: onEachContainer
-      }).addTo(map);
-    });
+5. 🏠 إضافة خريطة خلفية أخرى (Base Maps)
+امنح المستخدم خيار التبديل بين خلفيات الخريطة، مثل خريطة الشوارع أو صور الأقمار الصناعية (إذا كانت متوفرة بترخيص مجاني).
 
-    // دوال الحاويات
-    function pointToLayerFunction(feature, latlng) {
-      const color = feature.properties.TYPE_OF_WA === "Iron" ? "red" :
-                    feature.properties.TYPE_OF_WA === "Plastic" ? "blue" :
-                    "green";
-      const marker = L.circleMarker(latlng, { 
-        radius: 6, fillColor: color, color: "white", weight: 1, opacity: 1, fillOpacity: 0.8,
-        pane: 'containersPane' // التأكد أن النقاط فوق المناطق
-      });
-      marker.on('mouseover', function() { this.setStyle({ radius: 10, weight: 2 }); });
-      marker.on('mouseout', function() { this.setStyle({ radius: 6, weight: 1 }); });
-      return marker;
-    }
+يمكن تعريف طبقة خلفية أخرى مثل:
 
-    function onEachContainer(feature, layer) {
-      layer.bindPopup(`<b>نوع الحاوية:</b> ${feature.properties.TYPE_OF_WA || "غير محدد"}<br>
-                       <b>الرمز:</b> ${feature.properties.ID || "N/A"}`);
-    }
+JavaScript
 
-    function filterContainers(type) {
-      if (!containerData) return;
-      if (wasteContainersLayer) map.removeLayer(wasteContainersLayer);
-      wasteContainersLayer = L.geoJson(containerData, {
-        filter: function(f) { return type === "all" || f.properties.TYPE_OF_WA === type; },
-        pointToLayer: pointToLayerFunction,
-        onEachFeature: onEachContainer
-      }).addTo(map);
-      updateZoneColors();
-    }
-
-    // دوال المناطق
-    function getZoneColor(count) {
-      return count > 20 ? '#800026' :
-             count > 10 ? '#BD0026' :
-             count > 5  ? '#E31A1C' :
-                          '#FFEDA0';
-    }
-
-    function styleZone(feature) {
-      let count = 0;
-      if (wasteContainersLayer) {
-        wasteContainersLayer.eachLayer(function(container) {
-          const point = turf.point([container.getLatLng().lng, container.getLatLng().lat]);
-          if (turf.booleanPointInPolygon(point, feature)) count++;
-        });
-      }
-      return { fillColor: getZoneColor(count), fillOpacity: 0.5, color: "black", weight: 1 };
-    }
-
-    function showZoneInfo(layer, feature) {
-      if (!wasteContainersLayer) return;
-      let count = 0;
-      wasteContainersLayer.eachLayer(function(container) {
-        const point = turf.point([container.getLatLng().lng, container.getLatLng().lat]);
-        if (turf.booleanPointInPolygon(point, feature)) count++;
-      });
-      layer.bindPopup(`<b>المنطقة:</b> ${feature.properties.NAME}<br>
-                       <b>عدد الحاويات:</b> ${count}`).openPopup();
-    }
-
-    function updateZoneColors() {
-      if (!zonesLayer) return;
-      zonesLayer.eachLayer(function(layer) {
-        layer.setStyle(styleZone(layer.feature));
-      });
-    }
-
-    // التحكم بالطبقات
-    const overlays = { "مناطق رام الله": zonesLayer, "حاويات النفايات": wasteContainersLayer };
-    L.control.layers(baseLayers, overlays, { collapsed: false }).addTo(map);
-
-    // عرض الإحداثيات
-    const info = L.control({ position: 'bottomleft' });
-    info.onAdd = function() { this._div = L.DomUtil.create('div', 'info'); this.update(); return this._div; };
-    info.update = function(latlng) { this._div.innerHTML = latlng ? `<b>Lat:</b> ${latlng.lat.toFixed(5)} , <b>Lng:</b> ${latlng.lng.toFixed(5)}` : "حرّك الماوس على الخريطة"; };
-    info.addTo(map);
-    map.on('mousemove', function(e) { info.update(e.latlng); });
-
-    // مقياس المسافة
-    L.control.scale({ metric: true, imperial: false }).addTo(map);
-
-    // البحث عن المنطقة
-    $('#searchZone').on('keyup', function() {
-      const query = $(this).val().toLowerCase();
-      if (!zonesLayer) return;
-      zonesLayer.eachLayer(function(layer) {
-        if(layer.feature.properties.NAME.toLowerCase().includes(query)) {
-          map.fitBounds(layer.getBounds());
-          layer.setStyle({ fillOpacity: 0.7 });
-        } else {
-          layer.setStyle({ fillOpacity: 0.5 });
-        }
-      });
-    });
-  </script>
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Ramallah Waste Containers - Enhanced Map</title>
-
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
-  <style>
-    body { margin: 0; height: 100%; width: 100%; }
-    #map { position: absolute; width: 100%; height: 100%; }
-    .info { background: rgba(255,255,255,0.8); padding: 6px 8px; font: 14px/16px Arial, Helvetica, sans-serif; border-radius: 5px; }
-    .filter-box { position: absolute; top: 10px; left: 10px; z-index: 1000; background: rgba(255,255,255,0.8); padding: 5px; border-radius: 5px; }
-    .filter-box button { margin: 2px; }
-    #searchZone { position: absolute; top: 70px; left: 10px; z-index: 1000; padding: 5px; border-radius: 5px; border: 1px solid #ccc; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-
-  <!-- فلتر الحاويات -->
-  <div class="filter-box">
-    <button onclick="filterContainers('all')">الكل</button>
-    <button onclick="filterContainers('Iron')">حديد</button>
-    <button onclick="filterContainers('Plastic')">بلاستيك</button>
-    <button onclick="filterContainers('Glass')">زجاج</button>
-  </div>
-
-  <!-- صندوق البحث -->
-  <input type="text" id="searchZone" placeholder="ابحث عن المنطقة">
-
-  <!-- Libraries -->
-  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-  <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
-
-  <script>
-    const map = L.map("map", { center: [31.9045, 35.2045], zoom: 15 });
-
-    // إنشاء panes لتحديد ترتيب الطبقات
-    map.createPane('zonesPane');
-    map.getPane('zonesPane').style.zIndex = 400; // تحت الحاويات
-    map.createPane('containersPane');
-    map.getPane('containersPane').style.zIndex = 500; // فوق المناطق
-
-    // طبقات الخلفية
-    const baseLayers = {
-      "خريطة داكنة": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap & CARTO' }),
-      "خريطة الشوارع": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }),
-      "أقمار صناعية": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '&copy; Esri & OpenStreetMap contributors' })
-    };
-    baseLayers["خريطة داكنة"].addTo(map);
-
-    let wasteContainersLayer, zonesLayer, containerData;
-
-    // تحميل بيانات المناطق
-    $.getJSON("RamallahZones.json", function(RZ) {
-      zonesLayer = L.geoJson(RZ, {
-        style: styleZone,
-        pane: 'zonesPane',
-        onEachFeature: function(feature, layer) {
-          layer.on('click', function() { showZoneInfo(layer, feature); });
-        }
-      }).addTo(map);
-    });
-
-    // تحميل بيانات الحاويات
-    $.getJSON("wasteContainer.json", function(WC) {
-      containerData = WC;
-      wasteContainersLayer = L.geoJson(WC, {
-        pointToLayer: pointToLayerFunction,
-        onEachFeature: onEachContainer
-      }).addTo(map);
-    });
-
-    // دوال الحاويات
-    function pointToLayerFunction(feature, latlng) {
-      const color = feature.properties.TYPE_OF_WA === "Iron" ? "red" :
-                    feature.properties.TYPE_OF_WA === "Plastic" ? "blue" :
-                    "green";
-      const marker = L.circleMarker(latlng, { 
-        radius: 6, fillColor: color, color: "white", weight: 1, opacity: 1, fillOpacity: 0.8,
-        pane: 'containersPane' // التأكد أن النقاط فوق المناطق
-      });
-      marker.on('mouseover', function() { this.setStyle({ radius: 10, weight: 2 }); });
-      marker.on('mouseout', function() { this.setStyle({ radius: 6, weight: 1 }); });
-      return marker;
-    }
-
-    function onEachContainer(feature, layer) {
-      layer.bindPopup(`<b>نوع الحاوية:</b> ${feature.properties.TYPE_OF_WA || "غير محدد"}<br>
-                       <b>الرمز:</b> ${feature.properties.ID || "N/A"}`);
-    }
-
-    function filterContainers(type) {
-      if (!containerData) return;
-      if (wasteContainersLayer) map.removeLayer(wasteContainersLayer);
-      wasteContainersLayer = L.geoJson(containerData, {
-        filter: function(f) { return type === "all" || f.properties.TYPE_OF_WA === type; },
-        pointToLayer: pointToLayerFunction,
-        onEachFeature: onEachContainer
-      }).addTo(map);
-      updateZoneColors();
-    }
-
-    // دوال المناطق
-    function getZoneColor(count) {
-      return count > 20 ? '#800026' :
-             count > 10 ? '#BD0026' :
-             count > 5  ? '#E31A1C' :
-                          '#FFEDA0';
-    }
-
-    function styleZone(feature) {
-      let count = 0;
-      if (wasteContainersLayer) {
-        wasteContainersLayer.eachLayer(function(container) {
-          const point = turf.point([container.getLatLng().lng, container.getLatLng().lat]);
-          if (turf.booleanPointInPolygon(point, feature)) count++;
-        });
-      }
-      return { fillColor: getZoneColor(count), fillOpacity: 0.5, color: "black", weight: 1 };
-    }
-
-    function showZoneInfo(layer, feature) {
-      if (!wasteContainersLayer) return;
-      let count = 0;
-      wasteContainersLayer.eachLayer(function(container) {
-        const point = turf.point([container.getLatLng().lng, container.getLatLng().lat]);
-        if (turf.booleanPointInPolygon(point, feature)) count++;
-      });
-      layer.bindPopup(`<b>المنطقة:</b> ${feature.properties.NAME}<br>
-                       <b>عدد الحاويات:</b> ${count}`).openPopup();
-    }
-
-    function updateZoneColors() {
-      if (!zonesLayer) return;
-      zonesLayer.eachLayer(function(layer) {
-        layer.setStyle(styleZone(layer.feature));
-      });
-    }
-
-    // التحكم بالطبقات
-    const overlays = { "مناطق رام الله": zonesLayer, "حاويات النفايات": wasteContainersLayer };
-    L.control.layers(baseLayers, overlays, { collapsed: false }).addTo(map);
-
-    // عرض الإحداثيات
-    const info = L.control({ position: 'bottomleft' });
-    info.onAdd = function() { this._div = L.DomUtil.create('div', 'info'); this.update(); return this._div; };
-    info.update = function(latlng) { this._div.innerHTML = latlng ? `<b>Lat:</b> ${latlng.lat.toFixed(5)} , <b>Lng:</b> ${latlng.lng.toFixed(5)}` : "حرّك الماوس على الخريطة"; };
-    info.addTo(map);
-    map.on('mousemove', function(e) { info.update(e.latlng); });
-
-    // مقياس المسافة
-    L.control.scale({ metric: true, imperial: false }).addTo(map);
-
-    // البحث عن المنطقة
-    $('#searchZone').on('keyup', function() {
-      const query = $(this).val().toLowerCase();
-      if (!zonesLayer) return;
-      zonesLayer.eachLayer(function(layer) {
-        if(layer.feature.properties.NAME.toLowerCase().includes(query)) {
-          map.fitBounds(layer.getBounds());
-          layer.setStyle({ fillOpacity: 0.7 });
-        } else {
-          layer.setStyle({ fillOpacity: 0.5 });
-        }
-      });
-    });
-  </script>
-</body>
-</html>
-
-  </script>
-</body>
+const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+});
+// وتضمينها في baseLayers في التحكم بالطبقات.
+const baseLayers = {
+  "خريطة داكنة (افتراضية)": L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {/* ... */}),
+  "خريطة الشوارع": osmLayer
+};
+أي من هذه الأفكار تود أن أساعدك في تفصيل كيفية تطبيقها في الكود؟
 
 
 </html>
+
