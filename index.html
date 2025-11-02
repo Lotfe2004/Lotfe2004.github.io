@@ -44,7 +44,7 @@
     let wasteContainersLayer;
     let allContainersFeatureCollection = null; // لتخزين بيانات الحاويات لـ Turf
     let layerControl;
-    let containersData = null; // لتخزين بيانات GeoJSON للحاويات مؤقتاً
+    let containersData = null; // لتخزين بيانات GeoJSON للحاويات مؤقتاً
 
     // define map options
     const mapOptions = {
@@ -104,21 +104,21 @@
 
     // تحميل الحاويات والمناطق بالتوازي
     $.when(
-        // تحميل بيانات المناطق
-        $.getJSON("RamallahZones.json"),
-        // تحميل بيانات الحاويات
-        $.getJSON("wasteContainer.json")
-    ).done(function(zonesResponse, containersResponse) {
-        // [0] يحتوي على البيانات، [1] حالة الطلب
-        const RZ = zonesResponse[0];
-        const WC = containersResponse[0];
+        // تحميل بيانات المناطق
+        $.getJSON("RamallahZones.json"),
+        // تحميل بيانات الحاويات
+        $.getJSON("wasteContainer.json")
+    ).done(function(zonesResponse, containersResponse) {
+        // [0] يحتوي على البيانات
+        const RZ = zonesResponse[0];
+        const WC = containersResponse[0];
 
-        // 1. **تحميل المناطق وإضافتها أولاً (لتبقى في الأسفل)**
+        // 1. **تحميل المناطق وإضافتها أولاً (Zone Layer) - طبقة الخلفية**
         zonesLayer = L.geoJson(RZ, {
-            style: defaultZoneStyle, 
+            style: defaultZoneStyle, 
             onEachFeature: function(feature, layer) {
                     
-                    // حساب عدد الحاويات عند النقر
+                    // حساب عدد الحاويات عند النقر على المنطقة
                     layer.on('click', function(e) {
                         if (allContainersFeatureCollection) {
                             const zonePolygon = turf.feature(feature.geometry);
@@ -142,7 +142,7 @@
                     layer.on('mouseover', function(e) {
                         layer.setStyle({
                             weight: 3,
-                            color: '#FF0000', 
+                            color: '#FF0000', 
                             fillOpacity: 0.5 
                         });
                         layer.openTooltip(); 
@@ -161,9 +161,9 @@
                     
                 }
             });
-            zonesLayer.addTo(map); // إضافة المناطق أولاً (لتكون في الأسفل)
+            zonesLayer.addTo(map); // <--- تم إضافتها أولاً
 
-        // 2. **تحميل الحاويات وإضافتها ثانياً (لتكون في الأعلى)**
+        // 2. **تحميل الحاويات وإضافتها ثانياً (Waste Containers Layer) - طبقة المقدمة**
         // تخزين بيانات الحاويات في متغير Turf.js لاستخدامها في التحليل
         allContainersFeatureCollection = turf.featureCollection(WC.features);
 
@@ -183,14 +183,14 @@
                 layer.bindPopup(content);
             }
         });
-        wasteContainersLayer.addTo(map); // إضافة الحاويات ثانياً (لتكون في الأعلى)
-        
-        // 3. تحديث التحكم بالطبقات بعد إضافة كلتا الطبقتين
+        wasteContainersLayer.addTo(map); // <--- تم إضافتها ثانياً (لتكون في الأعلى وقابلة للنقر)
+        
+        // 3. تحديث التحكم بالطبقات بعد إضافة كلتا الطبقتين
         updateLayerControl();
-        
-    }).fail(function() {
-        console.error("فشل تحميل ملفات GeoJSON. تأكد من وجود wasteContainer.json و RamallahZones.json.");
-    });
+        
+    }).fail(function() {
+        console.error("فشل تحميل ملفات GeoJSON. تأكد من وجود wasteContainer.json و RamallahZones.json.");
+    });
   </script>
 </body>
 
