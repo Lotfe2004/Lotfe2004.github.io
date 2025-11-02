@@ -4,116 +4,257 @@
 
 <head>
   <meta charset="utf-8" />
+  <title>Ramallah Waste Containers Map - Updated</title>
 
-  <!-- Give the page a title -->
-  <title>Ramallah Waste Containers</title>
-
-  <!-- Add a link to the Leaflet CSS library so you can reference it for styling your map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
 
-  <!-- All the CSS code goes inside the style tags below -->
   <style>
-    /* style the body */
     body {
       margin: 0px;
       height: 100%;
       width: 100%;
     }
 
-    /* style the map */
     #map {
       position: absolute;
       width: 100%;
       top: 0px;
       bottom: 0;
     }
+    
+    /* Style for the filter dropdown control */
+    .leaflet-control-filter {
+        background-color: white;
+        padding: 6px 10px;
+        border-radius: 4px;
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+        margin-right: 10px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    .leaflet-control-filter select {
+        padding: 4px;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+    }
   </style>
 </head>
 
 <body>
-  <!-- the map -->
   <div id="map"></div>
 
-  <!-- Add a link to the Leaflet JavaScript library so you can reference it for building your map -->
   <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
 
-  <!-- Add a link to the jQuery JavaScript library so you can leverage ajax methods to load your data -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-  <!-- All JavaScript goes inside the script tags below -->
   <script>
-    // define map options
+    // ----------------------------------------------------
+    // 1. تعريف المتغيرات الأساسية
+    // ----------------------------------------------------
+    let zonesLayer;
+    let wasteContainersLayer;
+    let layerControl; 
+    const allContainersData = []; // لتخزين بيانات الحاويات الأصلية لغرض التصفية
+
+    // Map Initialization Options
     const mapOptions = {
-      zoomSnap: 0.5,  // this allows fractional zooming
-      center: [31.9045, 35.2045], // center the map on the coordinates for Ramallah
-      zoom: 17.5, // set the initial zoom
+      zoomSnap: 0.5,
+      center: [31.9045, 35.2045], // مركز رام الله
+      zoom: 16, 
     };
 
-    // define the map with the options above
     const map = L.map("map", mapOptions);
 
-// add a base map to the map
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: 'abcd',
-  maxZoom: 20
-}).addTo(map);
+    // Dark Tile Layer (Default Base Map)
+    const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20
+    }).addTo(map);
 
+    // ----------------------------------------------------
+    // 2. الدوال المساعدة للتحكم والتصفية
+    // ----------------------------------------------------
 
-// use jquery to load GeoJSON data
+    /**
+     * دالة لإنشاء طبقة حاويات النفايات وتطبيق التمييز اللوني والـ Popups.
+     */
+    function createContainersLayer(data) {
+        // إزالة الطبقة القديمة من الخريطة قبل إنشاء الطبقة الجديدة (للتصفية)
+        if (wasteContainersLayer && map.hasLayer(wasteContainersLayer)) {
+            map.removeLayer(wasteContainersLayer);
+        }
 
+        wasteContainersLayer = L.geoJson(data, {
+            pointToLayer: function(feature, latlng) {
+                // تحديد اللون بناءً على نوع النفايات لتمييز أفضل
+                let color;
+                switch (feature.properties.TYPE_OF_WA) {
+                    case 'Household':
+                        color = '#E9573F'; 
+                        break;
+                    case 'Recycling':
+                        color = '#4CAF50'; 
+                        break;
+                    case 'Plastics':
+                        color = '#3F51B5'; 
+                        break;
+                    default:
+                        color = '#FBC02D'; 
+                }
+                
+                return L.circleMarker(latlng, {
+                    radius: 7, 
+                    fillColor: color,
+                    color: color,
+                    weight: 1.5,
+                    opacity: 1,
+                    fillOpacity: 0.85
+                });
+            },
+            onEachFeature: function(feature, layer) {
+                // استخدام Popups لعرض المعلومات بدلاً من alert
+                const popupContent = `
+                    <h4 style="margin: 5px 0; color: ${layer.options.fillColor}">🧺 معلومات الحاوية</h4>
+                    <strong>النوع:</strong> ${feature.properties.TYPE_OF_WA || 'غير محدد'}<br>
+                    <strong>السعة:</strong> ${feature.properties.SIZE_IN_M3 || 'غير محدد'} م³
+                `;
+                layer.bindPopup(popupContent);
+            }
+        });
+        
+        // أضف الطبقة الجديدة إلى الخريطة 
+        wasteContainersLayer.addTo(map);
+        updateLayerControl(); // تحديث التحكم بالطبقات
+    }
 
-   $.getJSON("RamallahZones.json", function(RZ) {
-      L.geoJson(RZ, {
+    /**
+     * دالة لتصفية بيانات الحاويات وإعادة رسم الطبقة.
+     */
+    function filterContainers(wasteType) {
+        if (wasteType === 'All') {
+            createContainersLayer(allContainersData);
+        } else {
+            const filteredFeatures = allContainersData.features.filter(feature => 
+                feature.properties.TYPE_OF_WA === wasteType
+            );
+            const filteredGeoJson = {
+                "type": "FeatureCollection",
+                "features": filteredFeatures
+            };
+            createContainersLayer(filteredGeoJson);
+        }
+    }
+
+    /**
+     * دالة لإنشاء أو تحديث التحكم بالطبقات (L.control.layers).
+     */
+    function updateLayerControl() {
+        // يتم تنفيذ التحكم بالطبقات فقط إذا كانت كلتا الطبقتين جاهزتين
+        if (zonesLayer && wasteContainersLayer) {
+            // إزالة التحكم القديم إذا كان موجوداً
+            if (layerControl) {
+                map.removeControl(layerControl);
+            }
+
+            const baseLayers = {
+              "الخريطة الداكنة": darkTileLayer
+            };
+            const overlays = {
+              "مناطق رام الله 🏙️": zonesLayer,
+              "حاويات النفايات 🗑️": wasteContainersLayer
+            };
+
+            layerControl = L.control.layers(baseLayers, overlays).addTo(map);
+        }
+    }
+    
+    /**
+     * دالة لإضافة عنصر تحكم التصفية المخصص (Dropdown).
+     */
+    function addFilterControl() {
+        // استخراج الأنواع الفريدة
+        const wasteTypes = ['All']; 
+        allContainersData.features.forEach(feature => {
+            const type = feature.properties.TYPE_OF_WA;
+            if (type && !wasteTypes.includes(type)) {
+                wasteTypes.push(type);
+            }
+        });
+
+        const FilterControl = L.Control.extend({
+            onAdd: function(map) {
+                const container = L.DomUtil.create('div', 'leaflet-control-filter');
+                container.innerHTML = '<strong>تصفية الحاويات: </strong>';
+                
+                const select = L.DomUtil.create('select', 'waste-type-select', container);
+                wasteTypes.forEach(type => {
+                    const option = L.DomUtil.create('option', '', select);
+                    option.value = type;
+                    option.text = (type === 'All' ? '✅ جميع الأنواع' : type);
+                });
+
+                L.DomEvent.disableClickPropagation(container);
+                
+                select.onchange = function(e) {
+                    filterContainers(e.target.value);
+                };
+
+                return container;
+            }
+        });
+
+        new FilterControl({ position: 'topright' }).addTo(map);
+    }
+
+    // ----------------------------------------------------
+    // 3. تحميل بيانات GeoJSON
+    // ----------------------------------------------------
+
+    // تحميل مناطق رام الله (Zones)
+    $.getJSON("RamallahZones.json", function(RZ) {
+      zonesLayer = L.geoJson(RZ, {
         style: function(feature) {
           return {
-            fillColor: "yellow",
-            fillOpacity: 0.3,
-            color: "yellow",
-            weight: 1.0,
-            opacity: 0.7
+            fillColor: "#FAD02E", 
+            fillOpacity: 0.15, 
+            color: "#FAD02E",
+            weight: 2,
+            opacity: 0.9
           };
         },
         onEachFeature: function(feature, layer) {
-          layer.on('click', function(e) {
-            alert("Zone Name: " + feature.properties.NAME);
-          });
+          // استخدام Popups بدلاً من alert
+          const popupContent = `
+              <h4 style="margin: 5px 0;">📍 منطقة رام الله</h4>
+              <strong>الاسم:</strong> ${feature.properties.NAME || 'غير محدد'}
+          `;
+          layer.bindPopup(popupContent);
         }
-      }).addTo(map);
+      });
+      zonesLayer.addTo(map); 
+      updateLayerControl(); // تحديث التحكم بالطبقات
+    }).fail(function() {
+        console.error("فشل تحميل RamallahZones.json");
     });
 
+    // تحميل حاويات النفايات (Waste Containers)
     $.getJSON("wasteContainer.json", function(WC) {
-      L.geoJson(WC, {
-        pointToLayer: function(feature, latlng) {
-          return L.circleMarker(latlng, {
-            radius: 5,
-            fillColor: "orange",
-            color: "orange",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-          });
-         },
-        onEachFeature: function(feature, layer) {
-          layer.on('click', function(e) {
-            alert("WA: " + feature.properties.TYPE_OF_WA);
-          });
-        }
-      }).addTo(map);
+      // تخزين البيانات الأصلية للتصفية
+      allContainersData.features = WC.features;
+      allContainersData.type = WC.type;
+      
+      // إنشاء وعرض الطبقة الابتدائية لجميع الحاويات
+      createContainersLayer(allContainersData); 
+      
+      updateLayerControl(); // تحديث التحكم بالطبقات
+      addFilterControl(); // إضافة تحكم التصفية
+      
+    }).fail(function() {
+        console.error("فشل تحميل wasteContainer.json");
     });
-    // Add layers to map with control options
-    const baseLayers = {};
-    const overlays = {
-      "Zones": zonesLayer,
-      "Waste Containers": wasteContainersLayer
-    };
-
-    // Add layer control to the map
-    L.control.layers(baseLayers, overlays).addTo(map);
-
-    // Add both layers to the map by default
-    zonesLayer.addTo(map);
-    wasteContainersLayer.addTo(map);
+    
   </script>
 </body>
 
