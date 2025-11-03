@@ -146,3 +146,24 @@
                             if (layer.feature.properties.NAME === title) {
                                 layer.openPopup();
                             }
+                        });
+                    }
+                }));
+                
+                // تحديث الـ Layer Control
+                const overlays = {
+                    "Zones": zonesLayer,
+                    "Waste Containers": L.geoJson(wasteContainers)
+                };
+                L.control.layers(baseLayers, overlays).addTo(map);
+            });
+        });
+
+        const baseLayers = {};
+        // Note: The Layer Control logic is moved inside the second getJSON to ensure layers are loaded.
+        
+        // **ملاحظة بخصوص الكود الأصلي:** تم إزالة الجزئية الأخيرة من الكود الأصلي التي كانت تحاول استخدام (zonesLayer) و (wasteContainersLayer) قبل تعريفهما وتحميل بياناتهما بالكامل.
+    </script>
+</body>
+
+</html>
