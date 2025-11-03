@@ -1,197 +1,220 @@
 <!DOCTYPE html>
-
-<html lang="en">
-
+<html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8" />
+    <meta charset="utf-8" />
+    <title>حاويات نفايات رام الله - مطور</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20n6a9c34z6Gk4TzWwWd/A/52/6W/wzW4b5Ff74P2b2=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-  <title>Ramallah Waste Containers - Final Code</title>
-
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
-
-  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-
-  <style>
-    /* style the body */
-    body {
-      margin: 0px;
-      height: 100%;
-      width: 100%;
-    }
-
-    /* style the map */
-    #map {
-      position: absolute;
-      width: 100%;
-      top: 0px;
-      bottom: 0;
-    }
-  </style>
+    <style>
+        /* ستايلات أساسية */
+        body { margin: 0; height: 100vh; width: 100vw; font-family: Tahoma, Geneva, sans-serif; }
+        #map { position: absolute; width: 100%; top: 0; bottom: 0; }
+        /* ستايل مخصص لـ Tooltip المنطقة */
+        .zone-tooltip {
+            background-color: #2c3e50; /* لون خلفية داكن */
+            color: white;
+            border: 1px solid #34495e;
+            opacity: 0.9;
+            padding: 4px 8px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 
 <body>
-  <div id="map"></div>
+    <div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
+    <script>
+        // ----------------------------------------------------
+        // 1. تعريف المتغيرات الأساسية و الإعدادات
+        // ----------------------------------------------------
+        let zonesLayer;
+        let wasteContainersLayer;
+        let allContainersFeatureCollection = null; 
+        let layerControl;
+        let zoneContainerCounts = {}; // لتخزين عدد الحاويات لكل منطقة
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+        const mapOptions = {
+            zoomSnap: 0.5,
+            center: [31.9045, 35.2045],
+            zoom: 15.5, // تم تقليل مستوى التكبير الافتراضي لرؤية المزيد من رام الله
+        };
 
-  <script>
-    // ----------------------------------------------------
-    // 1. تعريف المتغيرات الأساسية
-    // ----------------------------------------------------
-    let zonesLayer; 
-    let wasteContainersLayer;
-    let allContainersFeatureCollection = null; // لتخزين بيانات الحاويات لـ Turf
-    let layerControl;
-    let containersData = null; // لتخزين بيانات GeoJSON للحاويات مؤقتاً
+        const map = L.map("map", mapOptions);
 
-    // define map options
-    const mapOptions = {
-      zoomSnap: 0.5,
-      center: [31.9045, 35.2045], 
-      zoom: 17.5, 
-    };
+        const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
 
-    // define the map with the options above
-    const map = L.map("map", mapOptions);
+        // ----------------------------------------------------
+        // 2. الدوال المساعدة: ستايلات ديناميكية
+        // ----------------------------------------------------
 
-    // Default Base Map
-    const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
-    }).addTo(map);
+        // دالة لتحديد لون المنطقة بناءً على عدد الحاويات (Choropleth)
+        function getZoneColor(count) {
+            return count > 100 ? '#800026' : // أحمر داكن جداً
+                   count > 70  ? '#BD0026' : 
+                   count > 40  ? '#E31A1C' : 
+                   count > 20  ? '#FC4E2A' : 
+                   count > 5   ? '#FD8D3C' : 
+                                 '#FED976'; // أصفر فاتح (عدد قليل)
+        }
 
-    // ----------------------------------------------------
-    // 2. الدوال المساعدة
-    // ----------------------------------------------------
+        // دالة لستايل المنطقة، تستخدم اللون الديناميكي
+        function zoneStyle(feature) {
+            const zoneName = feature.properties.NAME;
+            const count = zoneContainerCounts[zoneName] || 0;
+            return {
+                fillColor: getZoneColor(count),
+                fillOpacity: 0.7, // تم زيادة الشفافية لرؤية الخريطة الأساسية
+                color: 'white',
+                weight: 1.0,
+                opacity: 0.9
+            };
+        }
 
-    // دالة لتحديث أو إنشاء التحكم بالطبقات
-    function updateLayerControl() {
-        if (zonesLayer && wasteContainersLayer) {
-            // إزالة التحكم القديم إذا كان موجوداً لتجنب التكرار
-            if (layerControl) {
-                map.removeControl(layerControl);
-            }
+        // دالة لستايل الحاوية بناءً على نوع النفايات
+        function getContainerColor(wasteType) {
+            switch (wasteType) {
+                case 'Organic':
+                    return 'green'; // عضوي
+                case 'Inorganic':
+                    return 'blue'; // غير عضوي / بلاستيك
+                case 'Glass':
+                    return 'yellow'; // زجاج
+                default:
+                    return 'orange'; // افتراضي / غير محدد
+            }
+        }
+        
+        // ----------------------------------------------------
+        // 3. الدوال المساعدة: تحديث التحكم بالطبقات
+        // ----------------------------------------------------
+        function updateLayerControl() {
+            if (zonesLayer && wasteContainersLayer) {
+                if (layerControl) {
+                    map.removeControl(layerControl);
+                }
 
-            const baseLayers = {
-              "الخريطة الداكنة": darkTileLayer
-            };
-            const overlays = {
-              "مناطق رام الله 🏙️": zonesLayer,
-              "حاويات النفايات 🗑️": wasteContainersLayer
-            };
+                const baseLayers = {
+                    "الخريطة الداكنة": darkTileLayer
+                };
+                const overlays = {
+                    "مناطق رام الله (حسب الكثافة) 🏙️": zonesLayer,
+                    "حاويات النفايات (حسب النوع) 🗑️": wasteContainersLayer
+                };
 
-            layerControl = L.control.layers(baseLayers, overlays).addTo(map);
-        }
-    }
+                layerControl = L.control.layers(baseLayers, overlays, { collapsed: false }).addTo(map);
+            }
+        }
 
-    // الدالة الافتراضية لستايل المنطقة
-    function defaultZoneStyle(feature) {
-        return {
-            fillColor: "yellow",
-            fillOpacity: 0.3,
-            color: "yellow",
-            weight: 1.0,
-            opacity: 0.7
-        };
-    }
-    
-    // ----------------------------------------------------
-    // 3. تحميل البيانات
-    // ----------------------------------------------------
+        // ----------------------------------------------------
+        // 4. تحميل البيانات ومعالجتها
+        // ----------------------------------------------------
 
-    // تحميل الحاويات والمناطق بالتوازي
-    $.when(
-        // تحميل بيانات المناطق
-        $.getJSON("RamallahZones.json"),
-        // تحميل بيانات الحاويات
-        $.getJSON("wasteContainer.json")
-    ).done(function(zonesResponse, containersResponse) {
-        // [0] يحتوي على البيانات
-        const RZ = zonesResponse[0];
-        const WC = containersResponse[0];
+        $.when(
+            $.getJSON("RamallahZones.json"),
+            $.getJSON("wasteContainer.json")
+        ).done(function(zonesResponse, containersResponse) {
+            const RZ = zonesResponse[0];
+            const WC = containersResponse[0];
 
-        // 1. **تحميل المناطق وإضافتها أولاً (Zone Layer) - طبقة الخلفية**
-        zonesLayer = L.geoJson(RZ, {
-            style: defaultZoneStyle, 
-            onEachFeature: function(feature, layer) {
-                    
-                    // حساب عدد الحاويات عند النقر على المنطقة
-                    layer.on('click', function(e) {
-                        if (allContainersFeatureCollection) {
-                            const zonePolygon = turf.feature(feature.geometry);
-                            const pointsInZone = turf.pointsWithinPolygon(allContainersFeatureCollection, zonePolygon);
-                            const count = pointsInZone.features.length;
+            // تحويل الحاويات لـ FeatureCollection لـ Turf.js
+            allContainersFeatureCollection = turf.featureCollection(WC.features);
 
-                            const popupContent = `
-                                <h4>📍 منطقة رام الله</h4>
-                                <strong>الاسم:</strong> ${feature.properties.NAME || 'غير محدد'}<br>
-                                <hr style="margin: 5px 0;">
-                                <strong>عدد الحاويات الكلي:</strong> <span style="font-weight: bold; color: green; font-size: 1.1em;">${count}</span>
-                            `;
-                            // فتح Popup عند النقر
-                            layer.bindPopup(popupContent).openPopup(e.latlng);
-                        } else {
-                            alert("Zone Name: " + feature.properties.NAME);
-                        }
-                    });
+            // **الخطوة 1: حساب عدد الحاويات لكل منطقة**
+            RZ.features.forEach(zoneFeature => {
+                const zonePolygon = turf.feature(zoneFeature.geometry);
+                // استخدام turf.pointsWithinPolygon لحساب النقاط داخل المضلع
+                const pointsInZone = turf.pointsWithinPolygon(allContainersFeatureCollection, zonePolygon);
+                const count = pointsInZone.features.length;
+                zoneContainerCounts[zoneFeature.properties.NAME] = count;
+                zoneFeature.properties.containerCount = count; // إضافة الخاصية لسهولة الوصول إليها لاحقًا
+            });
 
-                    // تمييز المنطقة عند المرور فوقها (Hover Effect)
-                    layer.on('mouseover', function(e) {
-                        layer.setStyle({
-                            weight: 3,
-                            color: '#FF0000', 
-                            fillOpacity: 0.5 
-                        });
-                        layer.openTooltip(); 
-                    });
+            // **الخطوة 2: إضافة طبقة المناطق (Zones Layer) مع الستايل الديناميكي**
+            zonesLayer = L.geoJson(RZ, {
+                style: zoneStyle, // استخدام الستايل الديناميكي الجديد
+                onEachFeature: function(feature, layer) {
+                    const count = feature.properties.containerCount;
+                    
+                    // تحسين محتوى الـ Popup
+                    const popupContent = `
+                        <h4>📍 منطقة رام الله</h4>
+                        <strong>الاسم:</strong> ${feature.properties.NAME || 'غير محدد'}<br>
+                        <hr style="margin: 5px 0;">
+                        <strong>عدد الحاويات الكلي:</strong> <span style="font-weight: bold; color: ${getZoneColor(count)}; font-size: 1.1em;">${count}</span>
+                    `;
+                    layer.bindPopup(popupContent);
 
-                    layer.on('mouseout', function(e) {
-                        zonesLayer.resetStyle(layer);
-                    });
+                    // تأثير التمييز والتراجع عند المرور بالماوس
+                    layer.on({
+                        mouseover: function(e) {
+                            layer.setStyle({
+                                weight: 3,
+                                color: '#1abc9c', // لون حدود مميز
+                                fillOpacity: 0.9
+                            });
+                            layer.openTooltip();
+                        },
+                        mouseout: function(e) {
+                            zonesLayer.resetStyle(layer);
+                        },
+                        click: function(e) {
+                            map.fitBounds(layer.getBounds()); // التكبير على المنطقة عند النقر
+                        }
+                    });
 
-                    // Tooltip يعرض اسم المنطقة
-                    layer.bindTooltip(feature.properties.NAME, { 
-                        permanent: false, 
-                        direction: 'center', 
-                        className: 'zone-tooltip'
-                    });
-                    
-                }
-            });
-            zonesLayer.addTo(map); // <--- تم إضافتها أولاً
+                    // Tooltip يعرض اسم المنطقة
+                    layer.bindTooltip(feature.properties.NAME, {
+                        permanent: false,
+                        direction: 'center',
+                        className: 'zone-tooltip'
+                    });
+                }
+            });
+            zonesLayer.addTo(map);
 
-        // 2. **تحميل الحاويات وإضافتها ثانياً (Waste Containers Layer) - طبقة المقدمة**
-        // تخزين بيانات الحاويات في متغير Turf.js لاستخدامها في التحليل
-        allContainersFeatureCollection = turf.featureCollection(WC.features);
+            // **الخطوة 3: إضافة طبقة الحاويات (Containers Layer) مع ستايل حسب النوع**
+            wasteContainersLayer = L.geoJson(WC, {
+                pointToLayer: function(feature, latlng) {
+                    const containerType = feature.properties.TYPE_OF_WA || 'Unknown';
+                    const color = getContainerColor(containerType);
+                    
+                    // استخدام أيقونة (Marker) بدلاً من الدائرة لتمييز أفضل
+                    return L.circleMarker(latlng, {
+                        radius: 6,
+                        fillColor: color, 
+                        color: 'black',
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    });
+                },
+                onEachFeature: function(feature, layer) {
+                    const content = `
+                        <strong>🗑️ نوع النفايات:</strong> ${feature.properties.TYPE_OF_WA || 'غير محدد'}<br>
+                        <strong>الحالة:</strong> ${feature.properties.STATUS || 'غير معروف'}
+                    `;
+                    layer.bindPopup(content);
+                }
+            });
+            wasteContainersLayer.addTo(map);
+            
+            // **الخطوة 4: تحديث التحكم بالطبقات**
+            updateLayerControl();
 
-        wasteContainersLayer = L.geoJson(WC, {
-            pointToLayer: function(feature, latlng) {
-                return L.circleMarker(latlng, {
-                    radius: 5,
-                    fillColor: "orange",
-                    color: "orange",
-                    weight: 1,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                });
-            },
-            onEachFeature: function(feature, layer) {
-                const content = `<strong>نوع النفايات:</strong> ${feature.properties.TYPE_OF_WA || 'غير محدد'}`;
-                layer.bindPopup(content);
-            }
-        });
-        wasteContainersLayer.addTo(map); // <--- تم إضافتها ثانياً (لتكون في الأعلى وقابلة للنقر)
-        
-        // 3. تحديث التحكم بالطبقات بعد إضافة كلتا الطبقتين
-        updateLayerControl();
-        
-    }).fail(function() {
-        console.error("فشل تحميل ملفات GeoJSON. تأكد من وجود wasteContainer.json و RamallahZones.json.");
-    });
-  </script>
+        }).fail(function() {
+            console.error("فشل تحميل ملفات GeoJSON. تأكد من وجود wasteContainer.json و RamallahZones.json في المسار الصحيح.");
+            alert("فشل تحميل البيانات. يرجى التأكد من وجود ملفات GeoJSON الصحيحة.");
+        });
+    </script>
 </body>
-
 </html>
