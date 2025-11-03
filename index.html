@@ -6,6 +6,8 @@
     <title>Ramallah Waste Containers</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-search/dist/leaflet-search.min.css" />
 
     <style>
@@ -22,11 +24,19 @@
             bottom: 0;
         }
 
-        /* تنسيق بسيط لمربع البحث */
-        .leaflet-control-search {
-            margin-top: 10px;
-            margin-right: 10px;
-            /* للتأكد من ظهوره في الزاوية العلوية اليمنى فوق طبقات التحكم */
+        /* تعديل شكل مربع البحث */
+        .leaflet-control-search .search-button {
+            top: 10px !important;
+            right: 10px !important;
+            /* يوضع في الزاوية العلوية اليمنى */
+            background-color: #333;
+            color: #fff;
+            border-radius: 4px;
+        }
+
+        .leaflet-control-search .search-input {
+            top: 10px !important;
+            right: 10px !important;
         }
     </style>
 </head>
@@ -37,7 +47,7 @@
     <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
     <script src="https://unpkg.com/leaflet-search/dist/leaflet-search.min.js"></script>
 
     <script>
@@ -58,18 +68,62 @@
             maxZoom: 20
         }).addTo(map);
 
-        // متغيرات لتخزين بيانات GeoJSON
-        let wasteContainers = null;
-        let zonesLayer = null;
+        // تعريف طبقة تجميع الحاويات
+        const wasteContainersCluster = L.markerClusterGroup({
+            // تخصيص شكل أيقونة التجمع لتلوينها حسب العدد
+            iconCreateFunction: function (cluster) {
+                const count = cluster.getChildCount();
+                let className = 'marker-cluster-';
+                let color;
 
-        // **1. تحميل بيانات الحاويات أولاً**
+                if (count < 10) {
+                    color = 'green'; // عدد قليل
+                } else if (count < 30) {
+                    color = 'orange'; // عدد متوسط
+                } else {
+                    color = 'red'; // عدد كبير
+                }
+                // يتم استخدام div داخلي لتعيين اللون
+                return L.divIcon({
+                    html: `<div style="background-color: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; line-height: 30px; text-align: center; font-weight: bold;">${count}</div>`,
+                    className: 'my-cluster-icon',
+                    iconSize: L.point(30, 30)
+                });
+            }
+        });
+
+        // تعريف طبقة المناطق
+        const zonesLayer = L.geoJson(null, {
+            style: function (feature) {
+                return {
+                    fillColor: "yellow",
+                    fillOpacity: 0.3,
+                    color: "yellow",
+                    weight: 1.0,
+                    opacity: 0.7
+                };
+            },
+            onEachFeature: function (feature, layer) {
+                layer.on('click', function (e) {
+                    // حساب عدد الحاويات في المنطقة (يتطلب دالة لحساب التداخل، لكننا سنكتفي بالعرض هنا)
+                    // حالياً، سنعرض اسم المنطقة فقط، حيث يتطلب حساب عدد الحاويات عملية معقدة
+                    alert("Zone Name: " + feature.properties.NAME);
+                });
+            }
+        });
+
+        // تحميل بيانات المناطق
+        $.getJSON("RamallahZones.json", function (RZ) {
+            zonesLayer.addData(RZ);
+            zonesLayer.addTo(map);
+        });
+
+        // تحميل بيانات الحاويات
+        let allWasteContainers = []; // لتخزين جميع الحاويات لأغراض البحث
         $.getJSON("wasteContainer.json", function (WC) {
-            wasteContainers = WC; // تخزين كامل ملف GeoJSON للحاويات
-
-            // يمكننا إنشاء طبقة الحاويات هنا وإضافتها للخريطة كما في الكود الأصلي
-            L.geoJson(wasteContainers, {
+            L.geoJson(WC, {
                 pointToLayer: function (feature, latlng) {
-                    return L.circleMarker(latlng, {
+                    const marker = L.circleMarker(latlng, {
                         radius: 5,
                         fillColor: "orange",
                         color: "orange",
@@ -77,92 +131,43 @@
                         opacity: 1,
                         fillOpacity: 0.8
                     });
-                },
-                onEachFeature: function (feature, layer) {
-                    layer.bindPopup("WA: " + feature.properties.TYPE_OF_WA);
-                }
-            }).addTo(map);
 
-            // **2. تحميل بيانات المناطق بعد تحميل الحاويات**
-            $.getJSON("RamallahZones.json", function (RZ) {
-                // **3. عملية حساب عدد الحاويات لكل منطقة (Point in Polygon)**
-                const points = turf.featureCollection(wasteContainers.features);
-                
-                RZ.features.forEach(function (zoneFeature) {
-                    let count = 0;
-                    const polygon = zoneFeature.geometry;
-
-                    // المرور على جميع الحاويات والتحقق من التداخل
-                    points.features.forEach(function (pointFeature) {
-                        const isInside = turf.booleanPointInPolygon(pointFeature.geometry, polygon);
-                        if (isInside) {
-                            count++;
-                        }
+                    // إضافة حدث لعرض خاصية الحاوية عند النقر
+                    marker.on('click', function (e) {
+                        alert("Waste Type: " + feature.properties.TYPE_OF_WA);
                     });
 
-                    // إضافة خاصية جديدة لعدد الحاويات إلى المنطقة
-                    zoneFeature.properties.CONTAINER_COUNT = count;
-                });
-
-                // **4. تعريف طبقة المناطق مع الـ Popups والتفاعل**
-                zonesLayer = L.geoJson(RZ, {
-                    style: function (feature) {
-                        // تلوين المنطقة بناءً على عدد الحاويات (اختياري)
-                        let color = feature.properties.CONTAINER_COUNT > 50 ? "red" : "yellow";
-                        return {
-                            fillColor: color,
-                            fillOpacity: 0.3,
-                            color: color,
-                            weight: 1.0,
-                            opacity: 0.7
-                        };
-                    },
-                    onEachFeature: function (feature, layer) {
-                        const zoneName = feature.properties.NAME;
-                        const containerCount = feature.properties.CONTAINER_COUNT;
-                        const popupContent = `
-                            <h4>${zoneName}</h4>
-                            <p style="font-weight: bold;">عدد الحاويات: ${containerCount}</p>
-                        `;
-
-                        // ربط نافذة منبثقة (Popup) بالمنطقة لعرض عدد الحاويات
-                        layer.bindPopup(popupContent);
-                    }
-                }).addTo(map);
-                
-                // **5. تفعيل ميزة البحث على طبقة المناطق**
-                map.addControl(new L.Control.Search({
-                    layer: zonesLayer,
-                    propertyName: 'NAME', // البحث بالخاصية (NAME) وهي اسم المنطقة
-                    initial: false,
-                    zoom: 17, // درجة تكبير مناسبة عند إيجاد المنطقة
-                    marker: false, // لا نريد وضع علامة على المنطقة عند البحث
-                    textPlaceholder: 'ابحث عن اسم المنطقة...',
-                    moveToLocation: function(latlng, title, map) {
-                        // عند العثور على المنطقة، يتم التركيز عليها وفتح الـ popup
-                        map.setView(latlng, 17);
-                        // البحث عن الطبقة لفتح الـ Popup الخاص بها
-                        zonesLayer.eachLayer(function(layer) {
-                            if (layer.feature.properties.NAME === title) {
-                                layer.openPopup();
-                            }
-                        });
-                    }
-                }));
-                
-                // تحديث الـ Layer Control
-                const overlays = {
-                    "Zones": zonesLayer,
-                    "Waste Containers": L.geoJson(wasteContainers)
-                };
-                L.control.layers(baseLayers, overlays).addTo(map);
+                    // تخزين الحاوية مع خصائصها لغرض البحث
+                    marker.properties = feature.properties;
+                    allWasteContainers.push(marker);
+                    return marker;
+                }
+            }).eachLayer(function (layer) {
+                wasteContainersCluster.addLayer(layer); // إضافة كل حاوية إلى مجموعة التجميع
             });
+
+            map.addLayer(wasteContainersCluster);
+            
+            // **تنفيذ ميزة البحث:**
+            // سيتم البحث في طبقة تجميع الحاويات (wasteContainersCluster) بناءً على خاصية (TYPE_OF_WA)
+            map.addControl(new L.Control.Search({
+                layer: wasteContainersCluster,
+                propertyName: 'TYPE_OF_WA', // الخاصية التي سيتم البحث بها في ملف wasteContainer.json
+                initial: false,
+                zoom: 18,
+                marker: L.circleMarker([0,0], {radius:10, color: 'lime', fillColor: 'lime', fillOpacity: 0.8})
+            }));
+
         });
 
+        // إضافة التحكم بالطبقات
         const baseLayers = {};
-        // Note: The Layer Control logic is moved inside the second getJSON to ensure layers are loaded.
-        
-        // **ملاحظة بخصوص الكود الأصلي:** تم إزالة الجزئية الأخيرة من الكود الأصلي التي كانت تحاول استخدام (zonesLayer) و (wasteContainersLayer) قبل تعريفهما وتحميل بياناتهما بالكامل.
+        const overlays = {
+            "Zones": zonesLayer,
+            "Waste Containers (Clustered)": wasteContainersCluster
+        };
+
+        L.control.layers(baseLayers, overlays).addTo(map);
     </script>
 </body>
 
