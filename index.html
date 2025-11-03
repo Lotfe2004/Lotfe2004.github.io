@@ -1,122 +1,148 @@
 <!DOCTYPE html>
-
 <html lang="en">
 
 <head>
-  <meta charset="utf-8" />
+    <meta charset="utf-8" />
+    <title>Ramallah Waste Containers</title>
 
-  <!-- Give the page a title -->
-  <title>Ramallah Waste Containers</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-search/dist/leaflet-search.min.css" />
 
-  <!-- Add a link to the Leaflet CSS library so you can reference it for styling your map -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0px;
+            height: 100%;
+            width: 100%;
+        }
 
-  <!-- All the CSS code goes inside the style tags below -->
-  <style>
-    /* style the body */
-    body {
-      margin: 0px;
-      height: 100%;
-      width: 100%;
-    }
+        #map {
+            position: absolute;
+            width: 100%;
+            top: 0px;
+            bottom: 0;
+        }
 
-    /* style the map */
-    #map {
-      position: absolute;
-      width: 100%;
-      top: 0px;
-      bottom: 0;
-    }
-  </style>
+        /* تنسيق بسيط لمربع البحث */
+        .leaflet-control-search {
+            margin-top: 10px;
+            margin-right: 10px;
+            /* للتأكد من ظهوره في الزاوية العلوية اليمنى فوق طبقات التحكم */
+        }
+    </style>
 </head>
 
 <body>
-  <!-- the map -->
-  <div id="map"></div>
+    <div id="map"></div>
 
-  <!-- Add a link to the Leaflet JavaScript library so you can reference it for building your map -->
-  <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
-  <!-- Add a link to the jQuery JavaScript library so you can leverage ajax methods to load your data -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/leaflet-search/dist/leaflet-search.min.js"></script>
 
-  <!-- All JavaScript goes inside the script tags below -->
-  <script>
-    // define map options
-    const mapOptions = {
-      zoomSnap: 0.5,  // this allows fractional zooming
-      center: [31.9045, 35.2045], // center the map on the coordinates for Ramallah
-      zoom: 17.5, // set the initial zoom
-    };
+    <script>
+        // تعريف خيارات الخريطة
+        const mapOptions = {
+            zoomSnap: 0.5,
+            center: [31.9045, 35.2045],
+            zoom: 17.5,
+        };
 
-    // define the map with the options above
-    const map = L.map("map", mapOptions);
+        // تعريف الخريطة
+        const map = L.map("map", mapOptions);
 
-// add a base map to the map
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: 'abcd',
-  maxZoom: 20
-}).addTo(map);
+        // إضافة خريطة أساس
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
 
+        // متغيرات لتخزين بيانات GeoJSON
+        let wasteContainers = null;
+        let zonesLayer = null;
 
-// use jquery to load GeoJSON data
+        // **1. تحميل بيانات الحاويات أولاً**
+        $.getJSON("wasteContainer.json", function (WC) {
+            wasteContainers = WC; // تخزين كامل ملف GeoJSON للحاويات
 
+            // يمكننا إنشاء طبقة الحاويات هنا وإضافتها للخريطة كما في الكود الأصلي
+            L.geoJson(wasteContainers, {
+                pointToLayer: function (feature, latlng) {
+                    return L.circleMarker(latlng, {
+                        radius: 5,
+                        fillColor: "orange",
+                        color: "orange",
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    });
+                },
+                onEachFeature: function (feature, layer) {
+                    layer.bindPopup("WA: " + feature.properties.TYPE_OF_WA);
+                }
+            }).addTo(map);
 
-   $.getJSON("RamallahZones.json", function(RZ) {
-      L.geoJson(RZ, {
-        style: function(feature) {
-          return {
-            fillColor: "yellow",
-            fillOpacity: 0.3,
-            color: "yellow",
-            weight: 1.0,
-            opacity: 0.7
-          };
-        },
-        onEachFeature: function(feature, layer) {
-          layer.on('click', function(e) {
-            alert("Zone Name: " + feature.properties.NAME);
-          });
-        }
-      }).addTo(map);
-    });
+            // **2. تحميل بيانات المناطق بعد تحميل الحاويات**
+            $.getJSON("RamallahZones.json", function (RZ) {
+                // **3. عملية حساب عدد الحاويات لكل منطقة (Point in Polygon)**
+                const points = turf.featureCollection(wasteContainers.features);
+                
+                RZ.features.forEach(function (zoneFeature) {
+                    let count = 0;
+                    const polygon = zoneFeature.geometry;
 
-    $.getJSON("wasteContainer.json", function(WC) {
-      L.geoJson(WC, {
-        pointToLayer: function(feature, latlng) {
-          return L.circleMarker(latlng, {
-            radius: 5,
-            fillColor: "orange",
-            color: "orange",
-            weight: 1,
-            opacity: 1,
-            fillOpacity: 0.8
-          });
-         },
-        onEachFeature: function(feature, layer) {
-          layer.on('click', function(e) {
-            alert("WA: " + feature.properties.TYPE_OF_WA);
-          });
-        }
-      }).addTo(map);
-    });
-    // Add layers to map with control options
-    const baseLayers = {};
-    const overlays = {
-      "Zones": zonesLayer,
-      "Waste Containers": wasteContainersLayer
-    };
+                    // المرور على جميع الحاويات والتحقق من التداخل
+                    points.features.forEach(function (pointFeature) {
+                        const isInside = turf.booleanPointInPolygon(pointFeature.geometry, polygon);
+                        if (isInside) {
+                            count++;
+                        }
+                    });
 
-    // Add layer control to the map
-    L.control.layers(baseLayers, overlays).addTo(map);
+                    // إضافة خاصية جديدة لعدد الحاويات إلى المنطقة
+                    zoneFeature.properties.CONTAINER_COUNT = count;
+                });
 
-    // Add both layers to the map by default
-    zonesLayer.addTo(map);
-    wasteContainersLayer.addTo(map);
-  </script>
-</body>
+                // **4. تعريف طبقة المناطق مع الـ Popups والتفاعل**
+                zonesLayer = L.geoJson(RZ, {
+                    style: function (feature) {
+                        // تلوين المنطقة بناءً على عدد الحاويات (اختياري)
+                        let color = feature.properties.CONTAINER_COUNT > 50 ? "red" : "yellow";
+                        return {
+                            fillColor: color,
+                            fillOpacity: 0.3,
+                            color: color,
+                            weight: 1.0,
+                            opacity: 0.7
+                        };
+                    },
+                    onEachFeature: function (feature, layer) {
+                        const zoneName = feature.properties.NAME;
+                        const containerCount = feature.properties.CONTAINER_COUNT;
+                        const popupContent = `
+                            <h4>${zoneName}</h4>
+                            <p style="font-weight: bold;">عدد الحاويات: ${containerCount}</p>
+                        `;
 
-</html>
-</html>
-
+                        // ربط نافذة منبثقة (Popup) بالمنطقة لعرض عدد الحاويات
+                        layer.bindPopup(popupContent);
+                    }
+                }).addTo(map);
+                
+                // **5. تفعيل ميزة البحث على طبقة المناطق**
+                map.addControl(new L.Control.Search({
+                    layer: zonesLayer,
+                    propertyName: 'NAME', // البحث بالخاصية (NAME) وهي اسم المنطقة
+                    initial: false,
+                    zoom: 17, // درجة تكبير مناسبة عند إيجاد المنطقة
+                    marker: false, // لا نريد وضع علامة على المنطقة عند البحث
+                    textPlaceholder: 'ابحث عن اسم المنطقة...',
+                    moveToLocation: function(latlng, title, map) {
+                        // عند العثور على المنطقة، يتم التركيز عليها وفتح الـ popup
+                        map.setView(latlng, 17);
+                        // البحث عن الطبقة لفتح الـ Popup الخاص بها
+                        zonesLayer.eachLayer(function(layer) {
+                            if (layer.feature.properties.NAME === title) {
+                                layer.openPopup();
+                            }
