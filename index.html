@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8" />
-    <title>Ramallah Waste Containers (Fixed)</title>
+    <title>Ramallah Waste Containers (Complete)</title>
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -21,216 +20,128 @@
             width: 100%;
         }
 
-        /* Style for the search control inputs (small adjustments) */
         .leaflet-control-search .search-button {
-            top: 10px !important;
-            right: 10px !important;
             background-color: #333;
             color: #fff;
             border-radius: 4px;
         }
 
-        .leaflet-control-search .search-input {
-            top: 10px !important;
-            right: 10px !important;
-        }
-
-        /* Custom cluster icon class to avoid default styles interfering */
         .my-cluster-icon {
             border: none !important;
             background: transparent !important;
         }
     </style>
 </head>
-
 <body>
     <div id="map"></div>
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- jQuery (used for simple JSON loading) -->
+    <!-- jQuery -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
     <!-- MarkerCluster JS -->
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <!-- Leaflet Search JS -->
     <script src="https://unpkg.com/leaflet-search@3.0.8/dist/leaflet-search.min.js"></script>
-    <!-- Turf for spatial operations -->
+    <!-- Turf -->
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
     <script>
-        // Map options
         const map = L.map('map', {
             center: [31.9045, 35.2045],
-            zoom: 17.5,
+            zoom: 17.3,
             zoomSnap: 0.5
         });
 
-        // Dark base map
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-            maxZoom: 20
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
         }).addTo(map);
 
-        // Marker cluster group with custom icon color based on cluster size
         const wasteContainersCluster = L.markerClusterGroup({
-            iconCreateFunction: function (cluster) {
+            iconCreateFunction: cluster => {
                 const count = cluster.getChildCount();
-                let color;
-
-                if (count < 10) {
-                    color = '#4caf50'; // green
-                } else if (count < 30) {
-                    color = '#ffc107'; // amber
-                } else {
-                    color = '#9c27b0'; // purple (avoid plain red)
-                }
-
-                const size = 36;
-                const html = `<div style="background-color: ${color}; color: white; border-radius: 50%; width: ${size}px; height: ${size}px; line-height: ${size}px; text-align: center; font-weight: bold;">${count}</div>`;
+                let color = count < 10 ? '#4caf50' : count < 30 ? '#ffc107' : '#9c27b0';
 
                 return L.divIcon({
-                    html: html,
+                    html: `<div style="background-color:${color};color:white;border-radius:50%;width:36px;height:36px;line-height:36px;text-align:center;font-weight:bold;">${count}</div>`,
                     className: 'my-cluster-icon',
-                    iconSize: L.point(size, size)
+                    iconSize: L.point(36, 36)
                 });
             }
         });
 
-        // Layer for zones (polygons); data will be added later
         const zonesLayer = L.geoJSON(null, {
-            style: function (feature) {
+            style: f => ({
+                fillColor: (f.properties.CONTAINER_COUNT || 0) > 50 ? '#9c27b0' : '#ffc107',
+                fillOpacity: 0.35,
+                color: '#fff',
+                weight: 1
+            }),
+            onEachFeature: (feature, layer) => {
+                const name = feature.properties.NAME;
                 const count = feature.properties.CONTAINER_COUNT || 0;
-                let fillColor = count > 50 ? '#9c27b0' : '#ffc107'; // purple if many, amber otherwise
-                return {
-                    fillColor: fillColor,
-                    fillOpacity: 0.35,
-                    color: '#ffffff',
-                    weight: 1,
-                    opacity: 0.8
-                };
-            },
-            onEachFeature: function (feature, layer) {
-                const zoneName = feature.properties.NAME || 'Unknown';
-                const containerCount = feature.properties.CONTAINER_COUNT || 0;
                 const centroid = turf.centroid(feature).geometry.coordinates;
-                const popupContent = `<div style="font-family: sans-serif;"><h4>${zoneName}</h4><p><strong>Container count:</strong> ${containerCount}</p><p><strong>Centroid:</strong> ${centroid[1].toFixed(6)}, ${centroid[0].toFixed(6)}</p></div>`;
-                layer.bindPopup(popupContent);
 
-                layer.on('click', function () {
-                    layer.openPopup();
-                });
+                const popup = `
+                    <b>${name}</b><br>
+                    Containers: ${count}<br>
+                    Coordinates: ${centroid[1].toFixed(5)}, ${centroid[0].toFixed(5)}
+                `;
+
+                layer.bindPopup(popup);
             }
         });
 
-        // Keep loaded container data for the point-in-polygon calculation
-        let wasteContainersData = null;
+        let wasteData = null;
 
-        // Load waste container points first
-        // IMPORTANT: make sure "wasteContainer.json" exists and is a valid GeoJSON FeatureCollection of Point features
-        $.getJSON('wasteContainer.json')
-            .done(function (WC) {
-                wasteContainersData = WC;
+        $.getJSON('wasteContainer.json').done(WC => {
+            wasteData = WC;
 
-                // Add points to the cluster group (use circle markers)
-                L.geoJSON(WC, {
-                    pointToLayer: function (feature, latlng) {
-                        const marker = L.circleMarker(latlng, {
-                            radius: 6,
-                            fillColor: 'orange',
-                            color: 'orange',
-                            weight: 1,
-                            opacity: 1,
-                            fillOpacity: 0.9
-                        });
+            L.geoJSON(WC, {
+                pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+                    radius: 5,
+                    fillColor: 'orange',
+                    color: 'orange',
+                    fillOpacity: 0.9
+                }).bindPopup(`Waste Type: ${feature.properties.TYPE_OF_WA}`)
+            }).eachLayer(layer => wasteContainersCluster.addLayer(layer));
 
-                        const popupText = `Waste Type: ${feature.properties.TYPE_OF_WA || 'N/A'}`;
-                        marker.bindPopup(popupText);
-                        marker.feature = feature; // keep reference if needed later
-                        return marker;
-                    }
-                }).eachLayer(function (layer) {
-                    wasteContainersCluster.addLayer(layer);
+            map.addLayer(wasteContainersCluster);
+
+            $.getJSON('RamallahZones.json').done(RZ => {
+                const points = turf.featureCollection(WC.features);
+
+                RZ.features.forEach(zone => {
+                    let count = 0;
+                    points.features.forEach(pt => {
+                        if (turf.booleanPointInPolygon(pt, zone)) count++;
+                    });
+                    zone.properties.CONTAINER_COUNT = count;
                 });
 
-                // Add cluster layer to map
-                map.addLayer(wasteContainersCluster);
+                zonesLayer.addData(RZ).addTo(map);
 
-                // After points are loaded, load zones (polygons)
-                // IMPORTANT: make sure "RamallahZones.json" exists and is a valid GeoJSON FeatureCollection of Polygon/MultiPolygon features
-                $.getJSON('RamallahZones.json')
-                    .done(function (RZ) {
-                        // Use Turf to count points inside each polygon
-                        const pointsFC = turf.featureCollection(wasteContainersData.features);
+                const searchControl = new L.Control.Search({
+                    layer: zonesLayer,
+                    propertyName: 'NAME',
+                    marker: false,
+                    textPlaceholder: 'Search zone... ',
 
-                        RZ.features.forEach(function (zoneFeature) {
-                            let count = 0;
-                            pointsFC.features.forEach(function (pointFeature) {
-                                try {
-                                    const inside = turf.booleanPointInPolygon(pointFeature, zoneFeature);
-                                    if (inside) count++;
-                                } catch (err) {
-                                    // If Turf throws for any geometry issue, continue
-                                    console.warn('Turf error for feature:', err);
-                                }
-                            });
+                    moveToLocation: function (layer, name, map) {
+                        const centroid = turf.centroid(layer.feature).geometry.coordinates;
+                        map.setView([centroid[1], centroid[0]], 18);
+                        layer.openPopup();
+                    }
+                });
 
-                            zoneFeature.properties = zoneFeature.properties || {};
-                            zoneFeature.properties.CONTAINER_COUNT = count;
-                        });
+                map.addControl(searchControl);
 
-                        // Add updated zones to the zonesLayer and add to map
-                        zonesLayer.addData(RZ);
-                        map.addLayer(zonesLayer);
-
-                        // Add a search control for zones by NAME property
-                        const searchControl = new L.Control.Search({
-                            layer: zonesLayer,
-                            propertyName: 'NAME',
-                            initial: false,
-                            zoom: 17,
-                            marker: false,
-                            textPlaceholder: 'Search zone name...',
-                            moveToLocation: function (latlngOrLayer, title, map) {
-                                // If search returns a layer (polygon), center on its bounds
-                                if (latlngOrLayer && typeof latlngOrLayer.getBounds === 'function') {
-                                    const centroid = turf.centroid(latlngOrLayer.feature).geometry.coordinates;
-                                    map.setView([centroid[1], centroid[0]], 17());
-                                } else if (latlngOrLayer && latlngOrLayer.lat && latlngOrLayer.lng) {
-                                    map.setView([latlngOrLayer.lat, latlngOrLayer.lng], 17);
-                                } else {
-                                    // fallback: just keep current view
-                                }
-
-                                // Open the popup for the matched zone
-                                zonesLayer.eachLayer(function (layer) {
-                                    if (layer.feature && layer.feature.properties && layer.feature.properties.NAME === title) {
-                                        layer.openPopup();
-                                    }
-                                });
-                            }
-                        });
-
-                        map.addControl(searchControl);
-
-                        // Layer control
-                        const overlays = {
-                            'Zones': zonesLayer,
-                            'Waste Containers (Clustered)': wasteContainersCluster
-                        };
-
-                        L.control.layers(null, overlays, { collapsed: false }).addTo(map);
-
-                    })
-                    .fail(function () {
-                        alert('Failed to load RamallahZones.json. Make sure the file exists and is valid GeoJSON.');
-                    });
-
-            })
-            .fail(function () {
-                alert('Failed to load wasteContainer.json. Make sure the file exists and is valid GeoJSON.');
+                L.control.layers(null, {
+                    'Zones': zonesLayer,
+                    'Waste Containers (Clustered)': wasteContainersCluster
+                }).addTo(map);
             });
-
+        });
     </script>
 </body>
-
 </html>
