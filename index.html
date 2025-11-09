@@ -2,210 +2,233 @@
 <html lang="en">
 
 <head>
-    <meta charset="utf-8" />
-    <title>Ramallah Waste Containers</title>
+    <meta charset="utf-8" />
+    <title>Ramallah Waste Containers (Fixed)</title>
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-search/dist/leaflet-search.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- MarkerCluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <!-- Leaflet Search CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-search@3.0.8/dist/leaflet-search.min.css" />
 
-    <style>
-        body {
-            margin: 0px;
-            height: 100%;
-            width: 100%;
-        }
+    <style>
+        html, body, #map {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+        }
 
-        #map {
-            position: absolute;
-            width: 100%;
-            top: 0px;
-            bottom: 0;
-        }
+        /* Style for the search control inputs (small adjustments) */
+        .leaflet-control-search .search-button {
+            top: 10px !important;
+            right: 10px !important;
+            background-color: #333;
+            color: #fff;
+            border-radius: 4px;
+        }
 
-        /* تعديل شكل مربع البحث */
-        .leaflet-control-search .search-button {
-            top: 10px !important;
-            right: 10px !important;
-            background-color: #333;
-            color: #fff;
-            border-radius: 4px;
-        }
+        .leaflet-control-search .search-input {
+            top: 10px !important;
+            right: 10px !important;
+        }
 
-        .leaflet-control-search .search-input {
-            top: 10px !important;
-            right: 10px !important;
-        }
-    </style>
+        /* Custom cluster icon class to avoid default styles interfering */
+        .my-cluster-icon {
+            border: none !important;
+            background: transparent !important;
+        }
+    </style>
 </head>
 
 <body>
-    <div id="map"></div>
+    <div id="map"></div>
 
-    <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-
-    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
-    <script src="https://unpkg.com/leaflet-search/dist/leaflet-search.min.js"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- jQuery (used for simple JSON loading) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
+    <!-- MarkerCluster JS -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <!-- Leaflet Search JS -->
+    <script src="https://unpkg.com/leaflet-search@3.0.8/dist/leaflet-search.min.js"></script>
+    <!-- Turf for spatial operations -->
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
-    <script>
-        // تعريف خيارات الخريطة
-        const mapOptions = {
-            zoomSnap: 0.5,
-            center: [31.9045, 35.2045],
-            zoom: 17.5,
-        };
+    <script>
+        // Map options
+        const map = L.map('map', {
+            center: [31.9045, 35.2045],
+            zoom: 17.5,
+            zoomSnap: 0.5
+        });
 
-        // تعريف الخريطة
-        const map = L.map("map", mapOptions);
+        // Dark base map
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            maxZoom: 20
+        }).addTo(map);
 
-        // إضافة خريطة أساس
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 20
-        }).addTo(map);
+        // Marker cluster group with custom icon color based on cluster size
+        const wasteContainersCluster = L.markerClusterGroup({
+            iconCreateFunction: function (cluster) {
+                const count = cluster.getChildCount();
+                let color;
 
-        // تعريف طبقة تجميع الحاويات
-        const wasteContainersCluster = L.markerClusterGroup({
-            // تخصيص شكل أيقونة التجمع لتلوينها حسب العدد
-            iconCreateFunction: function (cluster) {
-                const count = cluster.getChildCount();
-                let color;
+                if (count < 10) {
+                    color = '#4caf50'; // green
+                } else if (count < 30) {
+                    color = '#ffc107'; // amber
+                } else {
+                    color = '#9c27b0'; // purple (avoid plain red)
+                }
 
-                // **تغيير الألوان المطلوبة (تجنب اللون الأحمر):**
-                if (count < 10) {
-                    color = '#4caf50'; // أخضر: عدد قليل
-                } else if (count < 30) {
-                    color = '#ffc107'; // برتقالي/أصفر: عدد متوسط
-                } else {
-                    color = '#f44336'; // أحمر داكن/بنفسجي (اخترنا #f44336 كبديل للبنفسجي في هذا المثال): عدد كبير
-                    // ملاحظة: يمكنك تغيير هذا اللون إلى أي لون آخر مثل البنفسجي (#9c27b0) أو الأزرق الداكن (#2196f3)
-                }
-                // يتم استخدام div داخلي لتعيين اللون
-                return L.divIcon({
-                    html: `<div style="background-color: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; line-height: 30px; text-align: center; font-weight: bold;">${count}</div>`,
-                    className: 'my-cluster-icon',
-                    iconSize: L.point(30, 30)
-                });
-            }
-        });
+                const size = 36;
+                const html = `<div style="background-color: ${color}; color: white; border-radius: 50%; width: ${size}px; height: ${size}px; line-height: ${size}px; text-align: center; font-weight: bold;">${count}</div>`;
 
-        // لتخزين بيانات الحاويات للمقارنة مع المناطق
-        let wasteContainersData = null; 
+                return L.divIcon({
+                    html: html,
+                    className: 'my-cluster-icon',
+                    iconSize: L.point(size, size)
+                });
+            }
+        });
 
-        // تعريف طبقة المناطق
-        const zonesLayer = L.geoJson(null, {
-            style: function (feature) {
-                // سيتم تحديد اللون هنا بعد حساب عدد الحاويات
-                let count = feature.properties.CONTAINER_COUNT || 0;
-                let color = count > 50 ? '#f44336' : 'yellow'; // استخدام الأحمر للمناطق ذات الكثافة العالية
-                return {
-                    fillColor: color,
-                    fillOpacity: 0.3,
-                    color: 'white', // تغيير لون الحدود ليتناسب مع الخلفية الداكنة
-                    weight: 1.0,
-                    opacity: 0.7
-                };
-            },
-            onEachFeature: function (feature, layer) {
-                const zoneName = feature.properties.NAME;
+        // Layer for zones (polygons); data will be added later
+        const zonesLayer = L.geoJSON(null, {
+            style: function (feature) {
+                const count = feature.properties.CONTAINER_COUNT || 0;
+                let fillColor = count > 50 ? '#9c27b0' : '#ffc107'; // purple if many, amber otherwise
+                return {
+                    fillColor: fillColor,
+                    fillOpacity: 0.35,
+                    color: '#ffffff',
+                    weight: 1,
+                    opacity: 0.8
+                };
+            },
+            onEachFeature: function (feature, layer) {
+                const zoneName = feature.properties.NAME || 'Unknown';
                 const containerCount = feature.properties.CONTAINER_COUNT || 0;
-                const popupContent = `
-                    <h4>${zoneName}</h4>
-                    <p style="font-weight: bold;">عدد الحاويات: ${containerCount}</p>
-                `;
+                const popupContent = `<div style="font-family: sans-serif;"><h4>${zoneName}</h4><p><strong>Container count:</strong> ${containerCount}</p></div>`;
                 layer.bindPopup(popupContent);
 
-                layer.on('click', function (e) {
-                    layer.openPopup();
-                });
-            }
-        });
+                layer.on('click', function () {
+                    layer.openPopup();
+                });
+            }
+        });
 
-        // **1. تحميل بيانات الحاويات أولاً وتجهيزها**
-        $.getJSON("wasteContainer.json", function (WC) {
-            wasteContainersData = WC;
-            L.geoJson(WC, {
-                pointToLayer: function (feature, latlng) {
-                    const marker = L.circleMarker(latlng, {
-                        radius: 5,
-                        fillColor: "orange",
-                        color: "orange",
-                        weight: 1,
-                        opacity: 1,
-                        fillOpacity: 0.8
-                    });
+        // Keep loaded container data for the point-in-polygon calculation
+        let wasteContainersData = null;
 
-                    marker.bindPopup("Waste Type: " + feature.properties.TYPE_OF_WA);
-                    marker.properties = feature.properties;
-                    return marker;
-                }
-            }).eachLayer(function (layer) {
-                wasteContainersCluster.addLayer(layer); // إضافة كل حاوية إلى مجموعة التجميع
-            });
+        // Load waste container points first
+        // IMPORTANT: make sure "wasteContainer.json" exists and is a valid GeoJSON FeatureCollection of Point features
+        $.getJSON('wasteContainer.json')
+            .done(function (WC) {
+                wasteContainersData = WC;
 
-            map.addLayer(wasteContainersCluster);
-            
-            // **2. تحميل بيانات المناطق بعد الحاويات لتنفيذ عملية (Point in Polygon)**
-            $.getJSON("RamallahZones.json", function (RZ) {
-                const points = turf.featureCollection(wasteContainersData.features);
-                
-                RZ.features.forEach(function (zoneFeature) {
-                    let count = 0;
-                    const polygon = zoneFeature.geometry;
+                // Add points to the cluster group (use circle markers)
+                L.geoJSON(WC, {
+                    pointToLayer: function (feature, latlng) {
+                        const marker = L.circleMarker(latlng, {
+                            radius: 6,
+                            fillColor: 'orange',
+                            color: 'orange',
+                            weight: 1,
+                            opacity: 1,
+                            fillOpacity: 0.9
+                        });
 
-                    // المرور على جميع الحاويات والتحقق من التداخل
-                    points.features.forEach(function (pointFeature) {
-                        const isInside = turf.booleanPointInPolygon(pointFeature.geometry, polygon);
-                        if (isInside) {
-                            count++;
-                        }
-                    });
-
-                    // إضافة خاصية جديدة لعدد الحاويات إلى المنطقة
-                    zoneFeature.properties.CONTAINER_COUNT = count;
+                        const popupText = `Waste Type: ${feature.properties.TYPE_OF_WA || 'N/A'}`;
+                        marker.bindPopup(popupText);
+                        marker.feature = feature; // keep reference if needed later
+                        return marker;
+                    }
+                }).eachLayer(function (layer) {
+                    wasteContainersCluster.addLayer(layer);
                 });
 
-                // إضافة البيانات المحسوبة إلى طبقة المناطق وتحديث الخريطة
-                zonesLayer.addData(RZ);
-                zonesLayer.addTo(map);
+                // Add cluster layer to map
+                map.addLayer(wasteContainersCluster);
 
-                // **3. تفعيل ميزة البحث على طبقة المناطق**
-                map.addControl(new L.Control.Search({
-                    layer: zonesLayer,
-                    propertyName: 'NAME', // البحث باسم المنطقة
-                    initial: false,
-                    zoom: 17, // درجة تكبير مناسبة عند إيجاد المنطقة
-                    marker: false, // لا نريد وضع علامة على المنطقة عند البحث
-                    textPlaceholder: 'ابحث عن اسم المنطقة...',
-                    moveToLocation: function(latlng, title, map) {
-                        map.setView(latlng, 17);
-                        // البحث عن الطبقة لفتح الـ Popup الخاص بها
-                        zonesLayer.eachLayer(function(layer) {
-                            if (layer.feature.properties.NAME === title) {
-                                layer.openPopup();
+                // After points are loaded, load zones (polygons)
+                // IMPORTANT: make sure "RamallahZones.json" exists and is a valid GeoJSON FeatureCollection of Polygon/MultiPolygon features
+                $.getJSON('RamallahZones.json')
+                    .done(function (RZ) {
+                        // Use Turf to count points inside each polygon
+                        const pointsFC = turf.featureCollection(wasteContainersData.features);
+
+                        RZ.features.forEach(function (zoneFeature) {
+                            let count = 0;
+                            pointsFC.features.forEach(function (pointFeature) {
+                                try {
+                                    const inside = turf.booleanPointInPolygon(pointFeature, zoneFeature);
+                                    if (inside) count++;
+                                } catch (err) {
+                                    // If Turf throws for any geometry issue, continue
+                                    console.warn('Turf error for feature:', err);
+                                }
+                            });
+
+                            zoneFeature.properties = zoneFeature.properties || {};
+                            zoneFeature.properties.CONTAINER_COUNT = count;
+                        });
+
+                        // Add updated zones to the zonesLayer and add to map
+                        zonesLayer.addData(RZ);
+                        map.addLayer(zonesLayer);
+
+                        // Add a search control for zones by NAME property
+                        const searchControl = new L.Control.Search({
+                            layer: zonesLayer,
+                            propertyName: 'NAME',
+                            initial: false,
+                            zoom: 17,
+                            marker: false,
+                            textPlaceholder: 'Search zone name...',
+                            moveToLocation: function (latlngOrLayer, title, map) {
+                                // If search returns a layer (polygon), center on its bounds
+                                if (latlngOrLayer && typeof latlngOrLayer.getBounds === 'function') {
+                                    map.fitBounds(latlngOrLayer.getBounds());
+                                } else if (latlngOrLayer && latlngOrLayer.lat && latlngOrLayer.lng) {
+                                    map.setView([latlngOrLayer.lat, latlngOrLayer.lng], 17);
+                                } else {
+                                    // fallback: just keep current view
+                                }
+
+                                // Open the popup for the matched zone
+                                zonesLayer.eachLayer(function (layer) {
+                                    if (layer.feature && layer.feature.properties && layer.feature.properties.NAME === title) {
+                                        layer.openPopup();
+                                    }
+                                });
                             }
                         });
-                    }
-                }));
 
-                // **4. إضافة التحكم بالطبقات**
-                const baseLayers = {};
-                const overlays = {
-                    "Zones": zonesLayer,
-                    "Waste Containers (Clustered)": wasteContainersCluster
-                };
+                        map.addControl(searchControl);
 
-                L.control.layers(baseLayers, overlays).addTo(map);
+                        // Layer control
+                        const overlays = {
+                            'Zones': zonesLayer,
+                            'Waste Containers (Clustered)': wasteContainersCluster
+                        };
 
+                        L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+
+                    })
+                    .fail(function () {
+                        alert('Failed to load RamallahZones.json. Make sure the file exists and is valid GeoJSON.');
+                    });
+
+            })
+            .fail(function () {
+                alert('Failed to load wasteContainer.json. Make sure the file exists and is valid GeoJSON.');
             });
 
-        });
-    </script>
+    </script>
 </body>
 
 </html>
