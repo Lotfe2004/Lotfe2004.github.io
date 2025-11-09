@@ -112,7 +112,8 @@
             onEachFeature: function (feature, layer) {
                 const zoneName = feature.properties.NAME || 'Unknown';
                 const containerCount = feature.properties.CONTAINER_COUNT || 0;
-                const popupContent = `<div style="font-family: sans-serif;"><h4>${zoneName}</h4><p><strong>Container count:</strong> ${containerCount}</p></div>`;
+                const centroid = turf.centroid(feature).geometry.coordinates;
+                const popupContent = `<div style="font-family: sans-serif;"><h4>${zoneName}</h4><p><strong>Container count:</strong> ${containerCount}</p><p><strong>Centroid:</strong> ${centroid[1].toFixed(6)}, ${centroid[0].toFixed(6)}</p></div>`;
                 layer.bindPopup(popupContent);
 
                 layer.on('click', function () {
@@ -192,7 +193,8 @@
                             moveToLocation: function (latlngOrLayer, title, map) {
                                 // If search returns a layer (polygon), center on its bounds
                                 if (latlngOrLayer && typeof latlngOrLayer.getBounds === 'function') {
-                                    map.fitBounds(latlngOrLayer.getBounds());
+                                    const centroid = turf.centroid(latlngOrLayer.feature).geometry.coordinates;
+                                    map.setView([centroid[1], centroid[0]], 17());
                                 } else if (latlngOrLayer && latlngOrLayer.lat && latlngOrLayer.lng) {
                                     map.setView([latlngOrLayer.lat, latlngOrLayer.lng], 17);
                                 } else {
