@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>تحليل وصول الطلاب للمدارس وسلامة الطرق في رام الله</title>
+    <title>تحليل وصول المدارس واحتياج الأحياء في رام الله</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -16,14 +16,6 @@
             padding: 0;
             width: 100%;
         }
-
-        /* تنسيق جميل لزر البحث */
-        .leaflet-control-search .search-button {
-            background-color: #007bff;
-            color: #fff;
-            border-radius: 4px;
-        }
-
         .legend {
             line-height: 18px;
             color: #555;
@@ -37,7 +29,18 @@
             height: 18px;
             float: left;
             margin-right: 8px;
-            opacity: 0.7;
+            opacity: 0.8;
+            border: 1px solid #ccc;
+        }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            left: 50px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
         }
     </style>
 </head>
@@ -51,31 +54,27 @@
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
     <script>
-        // إعداد الخريطة
         const map = L.map('map', {
-            center: [31.903, 35.205], // مركز رام الله التقريبي
+            center: [31.903, 35.205], 
             zoom: 15,
             zoomSnap: 0.5
         });
 
-        // طبقة الخلفية
         L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
         }).addTo(map);
 
-        // متغيرات الطبقات
         const schoolsCluster = L.markerClusterGroup();
         const zonesLayer = L.geoJSON(null);
-        const roadsLayer = L.geoJSON(null);
         let voronoiLayer = L.geoJSON(null);
+        let nearestSchoolLine = null; // لتخزين خط المسافة الأقصر
 
         // ==========================================================
-        // 1. وظيفة تصحيح Geometry (ضرورية لملف Ramallah_Schools.json)
+        // 1. وظيفة تصحيح Geometry (تتعامل مع Ramallah_Schools.json)
         // ==========================================================
         function fixSchoolGeometry(data) {
             if (!data || !data.features) return data;
-            data.features.forEach(feature => {
-                // GeoJSON يتوقع [Longitude, Latitude]
+            data.features = data.features.filter(feature => {
                 if (feature.geometry === null && feature.properties.North && feature.properties.East) {
                     feature.geometry = {
                         type: "Point",
@@ -84,51 +83,28 @@
                             parseFloat(feature.properties.North)
                         ]
                     };
+                    return true;
                 }
+                return feature.geometry !== null; 
             });
             return data;
         }
 
         // ==========================================================
-        // 2. تنسيق الأنماط (Styling Functions)
+        // 2. التنسيق والتحليل (Styling & Analysis)
         // ==========================================================
 
-        // أ. تنسيق طبقة الطرق (سلامة الوصول)
-        function getRoadStyle(feature) {
-            const type = feature.properties.Type;
-            let color = '#333';
-            let weight = 1.5;
-            let dashArray = '';
-
-            if (type && type.includes('Main')) {
-                color = '#E74C3C'; // أحمر: طريق رئيسي (خطر)
-                weight = 4;
-            } else if (type === 'Regional') {
-                color = '#F39C12'; // برتقالي: طريق إقليمي
-                weight = 3;
-            } else if (type === 'Local' || type === 'Internal') {
-                color = '#2ECC71'; // أخضر: طريق محلي/داخلي (أكثر أماناً)
-                weight = 2;
-            } else if (type === 'Dirt' || type.includes('Planning')) {
-                color = '#A9A9A9'; // رمادي: ترابي/غير مخطط
-                weight = 1;
-                dashArray = '5, 5';
-            }
-
-            return { color: color, weight: weight, dashArray: dashArray, opacity: 0.8 };
-        }
-
-        // ب. تنسيق طبقة الأحياء (كثافة المدارس)
+        // أ. التنسيق بناءً على تحليل إمكانية الوصول (Accessibility)
         function getZoneStyle(feature) {
-            const count = feature.properties.SCHOOL_COUNT || 0;
+            const distance = feature.properties.NEAREST_DISTANCE || Infinity; // بالعداد
             let fillColor;
 
-            if (count > 3) {
-                fillColor = '#1e7f3a'; // أخضر غامق: تغطية عالية (ممتاز)
-            } else if (count >= 1) {
-                fillColor = '#ffc107'; // أصفر: تغطية متوسطة (جيد)
+            if (distance <= 500) {
+                fillColor = '#1e7f3a'; // أخضر: وصول ممتاز (< 500م)
+            } else if (distance <= 1000) {
+                fillColor = '#ffc107'; // أصفر: وصول مقبول (500م - 1كم)
             } else {
-                fillColor = '#c0392b'; // أحمر: فجوة خدمة (ضعيف)
+                fillColor = '#c0392b'; // أحمر: وصول ضعيف (> 1كم)
             }
 
             return {
@@ -140,22 +116,63 @@
             };
         }
 
-        // ج. محتوى المنبثق لطبقة الأحياء
+        // ب. محتوى المنبثق (Popup) وتطبيق التحليل
         const onEachZone = (feature, layer) => {
             const name = feature.properties.NAME || 'حي غير مسمى';
             const count = feature.properties.SCHOOL_COUNT || 0;
-            
-            let status = 'ممتاز';
-            if (count === 0) status = 'فجوة خدمة - يجب بناء مدرسة';
-            else if (count === 1) status = 'تغطية ضعيفة';
+            const distance = feature.properties.NEAREST_DISTANCE ? feature.properties.NEAREST_DISTANCE.toFixed(0) : 'غير معروف';
+            const ratio = feature.properties.POP_PER_SCHOOL ? feature.properties.POP_PER_SCHOOL.toFixed(0) : 'غير معروف';
+            const nearestSchoolName = feature.properties.NEAREST_SCHOOL_NAME || '---';
+
+            let accessStatus = 'ممتاز';
+            if (distance > 1000) accessStatus = 'ضعيف - يحتاج لنقل مدرسي';
+            else if (distance > 500) accessStatus = 'مقبول';
+
+            let capacityStatus = 'جيد';
+            if (ratio > 5000) capacityStatus = 'اكتظاظ شديد';
+            else if (ratio > 2500) capacityStatus = 'اكتظاظ متوسط';
 
             const popup = `
                 <h4><b style="color:#007bff;">${name}</b></h4>
                 <hr style="margin: 5px 0;">
-                <p>عدد المدارس الداخلية: <b>${count}</b></p>
-                <p>مستوى التغطية: <b style="color:${getZoneStyle(feature).fillColor};">${status}</b></p>
+                
+                <p><b>تحليل الوصول:</b></p>
+                <ul>
+                    <li>أقرب مدرسة: <b>${nearestSchoolName}</b></li>
+                    <li>مسافة الوصول: <b>${distance} متر</b></li>
+                    <li>حالة الوصول: <b style="color:${getZoneStyle(feature).fillColor};">${accessStatus}</b></li>
+                </ul>
+                
+                <p><b>تحليل القدرة الاستيعابية:</b></p>
+                <ul>
+                    <li>عدد المدارس الداخلية: <b>${count}</b></li>
+                    <li>نسبة السكان لكل مدرسة: <b>${ratio} شخص</b></li>
+                    <li>حالة الاكتظاظ: <b>${capacityStatus}</b></li>
+                </ul>
             `;
+            
             layer.bindPopup(popup);
+
+            // وظيفة رسم خط المسافة الأقصر عند النقر
+            layer.on('click', function(e) {
+                if (nearestSchoolLine) map.removeLayer(nearestSchoolLine);
+                
+                if (feature.properties.NEAREST_SCHOOL_COORDS) {
+                    const centroidCoords = turf.getCoord(turf.centroid(feature));
+                    const schoolCoords = feature.properties.NEAREST_SCHOOL_COORDS;
+                    
+                    const line = L.polyline([
+                        [centroidCoords[1], centroidCoords[0]], // مركز الحي
+                        [schoolCoords[1], schoolCoords[0]]      // أقرب مدرسة
+                    ], {
+                        color: 'blue',
+                        weight: 3,
+                        dashArray: '5, 5'
+                    });
+                    
+                    nearestSchoolLine = line.addTo(map);
+                }
+            });
         };
 
         // ==========================================================
@@ -164,56 +181,49 @@
 
         $.when(
             $.getJSON('Ramallah_Schools.json'),
-            $.getJSON('RamallahZones.json'),
-            $.getJSON('Roads.json')
-        ).done((schoolsResponse, zonesResponse, roadsResponse) => {
+            $.getJSON('RamallahZones.json')
+        ).done((schoolsResponse, zonesResponse) => {
             
             let schoolsData = fixSchoolGeometry(schoolsResponse[0]);
             const zonesData = zonesResponse[0];
-            const roadsData = roadsResponse[0];
 
-            const schoolPoints = turf.featureCollection(schoolsData.features.filter(f => f.geometry !== null));
+            const schoolPoints = turf.featureCollection(schoolsData.features);
             const zonePolygons = zonesData.features;
 
-            // ------------------------------------
-            // أ. تحليل كثافة المدارس (Count)
-            // ------------------------------------
-            zonePolygons.forEach(zone => {
+            // بيانات سكانية تقديرية (لتحليل الاكتظاظ - يجب شرح هذا للدكتورة)
+            const simulatedPopulation = [4500, 7000, 2000, 15000, 3000, 6000, 4000, 1800, 8000, 500];
+            
+            zonePolygons.forEach((zone, index) => {
+                const zoneCentroid = turf.centroid(zone);
                 let count = 0;
+                
+                // 1. تحليل كثافة المدارس
                 schoolPoints.features.forEach(pt => {
                     if (turf.booleanPointInPolygon(pt, zone)) count++;
                 });
                 zone.properties.SCHOOL_COUNT = count;
+
+                // 2. تحليل الوصول (المسافة إلى أقرب مدرسة)
+                const nearest = turf.nearestPoint(zoneCentroid, schoolPoints);
+                const distanceInKm = turf.distance(zoneCentroid, nearest);
+                zone.properties.NEAREST_DISTANCE = distanceInKm * 1000; // بالعداد
+                zone.properties.NEAREST_SCHOOL_NAME = nearest.properties.Arabic_Sch || nearest.properties.English_Sc;
+                zone.properties.NEAREST_SCHOOL_COORDS = turf.getCoord(nearest);
+
+                // 3. تحليل الاكتظاظ (Capacity Analysis)
+                // يتم استخدام بيانات تقديرية
+                const pop = simulatedPopulation[index % simulatedPopulation.length] * 1.5; // توزيع السكان
+                zone.properties.POPULATION = pop; 
+                
+                if (count > 0) {
+                    zone.properties.POP_PER_SCHOOL = pop / count;
+                } else {
+                    zone.properties.POP_PER_SCHOOL = pop / 0.5; // قيمة عالية للإشارة للاكتظاظ/الحاجة
+                }
             });
 
             // ------------------------------------
-            // ب. إنشاء مناطق فورونوي (Voronoi Polygons)
-            // ------------------------------------
-            try {
-                // تحديد مربع الحدود لضمان تغطية كاملة للخريطة
-                const bbox = turf.bbox(schoolPoints);
-                const voronoiPolygons = turf.voronoi(schoolPoints, { bbox: bbox });
-
-                voronoiLayer = L.geoJSON(voronoiPolygons, {
-                    style: {
-                        fillColor: '#8E44AD',
-                        fillOpacity: 0.15,
-                        color: '#8E44AD',
-                        weight: 1
-                    },
-                    onEachFeature: (feature, layer) => {
-                        const name = feature.properties.Arabic_Sch || feature.properties.English_Sc || 'مدرسة غير معروفة';
-                        layer.bindPopup(`منطقة نفوذ: <b>${name}</b>`);
-                    }
-                });
-
-            } catch (e) {
-                console.error("Failed to generate Voronoi polygons:", e);
-            }
-
-
-            // ------------------------------------
-            // ج. إضافة الطبقات للخريطة
+            // إضافة الطبقات للخريطة
             // ------------------------------------
 
             // 1. طبقة المدارس
@@ -227,21 +237,38 @@
             map.addLayer(schoolsCluster);
 
 
-            // 2. طبقة الطرق (تحليل السلامة)
-            roadsLayer.addData(roadsData).setStyle(getRoadStyle).addTo(map);
-
-
-            // 3. طبقة الأحياء (تحليل الكثافة)
+            // 2. طبقة الأحياء (تحليل الوصول هو أساس التلوين)
             zonesLayer.addData(zonesData).setStyle(getZoneStyle);
-            zonesLayer.eachLayer(layer => onEachZone(layer.feature, layer));
+            zonesLayer.eachLayer(onEachZone);
             map.addLayer(zonesLayer);
 
 
+            // 3. إنشاء مناطق فورونوي (Voronoi Polygons)
+            try {
+                const bbox = turf.bbox(schoolPoints);
+                const voronoiPolygons = turf.voronoi(schoolPoints, { bbox: bbox });
+
+                voronoiLayer = L.geoJSON(voronoiPolygons, {
+                    style: {
+                        fillColor: '#8E44AD',
+                        fillOpacity: 0.15,
+                        color: '#8E44AD',
+                        weight: 1
+                    },
+                    onEachFeature: (feature, layer) => {
+                        const name = feature.properties.Arabic_Sch || feature.properties.English_Sc || 'مدرسة غير معروفة';
+                        layer.bindPopup(`منطقة النفوذ الأقرب للمدرسة: <b>${name}</b>`);
+                    }
+                });
+            } catch (e) {
+                console.error("فشل في إنشاء مضلعات فورونوي:", e);
+            }
+
+
             // ------------------------------------
-            // 4. إعداد أدوات التحكم (Control Tools)
+            // إعداد أدوات التحكم
             // ------------------------------------
 
-            // أ. أداة البحث (البحث في الأحياء)
             const searchControl = new L.Control.Search({
                 layer: zonesLayer,
                 propertyName: 'NAME',
@@ -255,44 +282,33 @@
             });
             map.addControl(searchControl);
 
-            // ب. قائمة الطبقات (Layer Control)
             L.control.layers(null, {
-                'حدود الأحياء (كثافة المدارس)': zonesLayer,
+                'حدود الأحياء (تحليل الوصول)': zonesLayer,
                 'مناطق النفوذ التعليمي (فورونوي)': voronoiLayer,
-                'شبكة الطرق (مؤشر السلامة)': roadsLayer,
                 'مواقع المدارس': schoolsCluster
             }).addTo(map);
 
-            // ج. إضافة وسيلة الإيضاح (Legend)
+            // إضافة وسيلة الإيضاح (Legend)
             const legend = L.control({position: 'bottomright'});
             legend.onAdd = function (map) {
                 const div = L.DomUtil.create('div', 'info legend');
-                const grades = ['فجوة خدمة (0)', 'تغطية ضعيفة (1-3)', 'تغطية عالية (4+)'];
-                const colors = ['#c0392b', '#ffc107', '#1e7f3a'];
-                const roadTypes = {
-                    'طرق رئيسية/إقليمية': '#E74C3C',
-                    'طرق محلية/داخلية': '#2ECC71'
-                };
+                const grades = ['وصول ممتاز (< 500م)', 'وصول مقبول (500م - 1كم)', 'وصول ضعيف (> 1كم)'];
+                const colors = ['#1e7f3a', '#ffc107', '#c0392b'];
 
-                div.innerHTML += '<b>تحليل تغطية المدارس</b><br>';
+                div.innerHTML += '<b>مؤشر الوصول للمدرسة (مشي)</b><br>';
                 for (let i = 0; i < colors.length; i++) {
                     div.innerHTML +=
                         '<i style="background:' + colors[i] + '"></i> ' + grades[i] + '<br>';
                 }
-                
-                div.innerHTML += '<br><b>مؤشر سلامة الطرق</b><br>';
-                for (let key in roadTypes) {
-                    div.innerHTML +=
-                        '<i style="background:' + roadTypes[key] + '"></i> ' + key + '<br>';
-                }
-
+                div.innerHTML += '<hr style="margin: 5px 0;">'
+                div.innerHTML += '<i style="background:blue; opacity: 1; border: none; height: 3px;"></i> خط المسافة الأقصر (انقر على الحي)';
                 return div;
             };
             legend.addTo(map);
 
         }).fail((err) => {
-            console.error("Failed to load one or more GeoJSON files.", err);
-            alert("خطأ: يرجى التأكد من وجود ملفات Ramallah_Schools.json و RamallahZones.json و Roads.json في نفس المجلد.");
+            console.error("فشل في تحميل أحد ملفات GeoJSON. تأكد من وجود الملفات في نفس المجلد.", err);
+            alert("خطأ: يرجى التأكد من وجود ملفات Ramallah_Schools.json و RamallahZones.json في نفس المجلد.");
         });
     </script>
 </body>
