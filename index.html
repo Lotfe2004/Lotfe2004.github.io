@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>تحليل وصول المدارس واحتياج الأحياء في رام الله</title>
+    <title>تحليل وصول الطلاب للمدارس وتغطية الأحياء في رام الله (مصحح)</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -15,6 +15,11 @@
             margin: 0;
             padding: 0;
             width: 100%;
+        }
+        .leaflet-control-search .search-button {
+            background-color: #007bff;
+            color: #fff;
+            border-radius: 4px;
         }
         .legend {
             line-height: 18px;
@@ -30,17 +35,6 @@
             float: left;
             margin-right: 8px;
             opacity: 0.8;
-            border: 1px solid #ccc;
-        }
-        .info-panel {
-            position: absolute;
-            top: 10px;
-            left: 50px;
-            z-index: 1000;
-            background: white;
-            padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0 0 15px rgba(0,0,0,0.2);
         }
     </style>
 </head>
@@ -54,6 +48,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
     <script>
+        // إعداد الخريطة والطبقات
         const map = L.map('map', {
             center: [31.903, 35.205], 
             zoom: 15,
@@ -67,44 +62,47 @@
         const schoolsCluster = L.markerClusterGroup();
         const zonesLayer = L.geoJSON(null);
         let voronoiLayer = L.geoJSON(null);
-        let nearestSchoolLine = null; // لتخزين خط المسافة الأقصر
 
         // ==========================================================
-        // 1. وظيفة تصحيح Geometry (تتعامل مع Ramallah_Schools.json)
+        // 1. وظيفة تصحيح Geometry (تعالج ملف Ramallah_Schools.json)
         // ==========================================================
         function fixSchoolGeometry(data) {
             if (!data || !data.features) return data;
+            
+            // نستخدم filter لضمان أننا نضيف فقط الميزات التي لديها إحداثيات صالحة
             data.features = data.features.filter(feature => {
                 if (feature.geometry === null && feature.properties.North && feature.properties.East) {
                     feature.geometry = {
                         type: "Point",
+                        // GeoJSON يتوقع [Longitude, Latitude]
                         coordinates: [
                             parseFloat(feature.properties.East),
                             parseFloat(feature.properties.North)
                         ]
                     };
-                    return true;
+                    return true; // إحداثيات صالحة
                 }
+                // في حالة أن الـ geometry كانت موجودة وصحيحة، أو أنها لا تحتوي على East/North
                 return feature.geometry !== null; 
             });
             return data;
         }
 
         // ==========================================================
-        // 2. التنسيق والتحليل (Styling & Analysis)
+        // 2. تنسيق الأنماط ومحتوى المنبثقات (Styling & Popups)
         // ==========================================================
-
-        // أ. التنسيق بناءً على تحليل إمكانية الوصول (Accessibility)
+        
+        // أ. تنسيق طبقة الأحياء (كثافة المدارس)
         function getZoneStyle(feature) {
-            const distance = feature.properties.NEAREST_DISTANCE || Infinity; // بالعداد
+            const count = feature.properties.SCHOOL_COUNT || 0;
             let fillColor;
 
-            if (distance <= 500) {
-                fillColor = '#1e7f3a'; // أخضر: وصول ممتاز (< 500م)
-            } else if (distance <= 1000) {
-                fillColor = '#ffc107'; // أصفر: وصول مقبول (500م - 1كم)
+            if (count > 3) {
+                fillColor = '#1e7f3a'; // أخضر غامق: تغطية عالية
+            } else if (count >= 1) {
+                fillColor = '#ffc107'; // أصفر: تغطية متوسطة
             } else {
-                fillColor = '#c0392b'; // أحمر: وصول ضعيف (> 1كم)
+                fillColor = '#c0392b'; // أحمر: فجوة خدمة
             }
 
             return {
@@ -116,63 +114,22 @@
             };
         }
 
-        // ب. محتوى المنبثق (Popup) وتطبيق التحليل
+        // ب. محتوى المنبثق لطبقة الأحياء
         const onEachZone = (feature, layer) => {
             const name = feature.properties.NAME || 'حي غير مسمى';
             const count = feature.properties.SCHOOL_COUNT || 0;
-            const distance = feature.properties.NEAREST_DISTANCE ? feature.properties.NEAREST_DISTANCE.toFixed(0) : 'غير معروف';
-            const ratio = feature.properties.POP_PER_SCHOOL ? feature.properties.POP_PER_SCHOOL.toFixed(0) : 'غير معروف';
-            const nearestSchoolName = feature.properties.NEAREST_SCHOOL_NAME || '---';
-
-            let accessStatus = 'ممتاز';
-            if (distance > 1000) accessStatus = 'ضعيف - يحتاج لنقل مدرسي';
-            else if (distance > 500) accessStatus = 'مقبول';
-
-            let capacityStatus = 'جيد';
-            if (ratio > 5000) capacityStatus = 'اكتظاظ شديد';
-            else if (ratio > 2500) capacityStatus = 'اكتظاظ متوسط';
+            
+            let status = 'ممتاز - تغطية كافية';
+            if (count === 0) status = 'فجوة خدمة - يجب التخطيط لبناء مدرسة';
+            else if (count >= 1 && count <= 3) status = 'تغطية متوسطة - احتمال الاكتظاظ';
 
             const popup = `
                 <h4><b style="color:#007bff;">${name}</b></h4>
                 <hr style="margin: 5px 0;">
-                
-                <p><b>تحليل الوصول:</b></p>
-                <ul>
-                    <li>أقرب مدرسة: <b>${nearestSchoolName}</b></li>
-                    <li>مسافة الوصول: <b>${distance} متر</b></li>
-                    <li>حالة الوصول: <b style="color:${getZoneStyle(feature).fillColor};">${accessStatus}</b></li>
-                </ul>
-                
-                <p><b>تحليل القدرة الاستيعابية:</b></p>
-                <ul>
-                    <li>عدد المدارس الداخلية: <b>${count}</b></li>
-                    <li>نسبة السكان لكل مدرسة: <b>${ratio} شخص</b></li>
-                    <li>حالة الاكتظاظ: <b>${capacityStatus}</b></li>
-                </ul>
+                <p>عدد المدارس الداخلية: <b>${count}</b></p>
+                <p>مستوى التغطية: <b style="color:${getZoneStyle(feature).fillColor};">${status}</b></p>
             `;
-            
             layer.bindPopup(popup);
-
-            // وظيفة رسم خط المسافة الأقصر عند النقر
-            layer.on('click', function(e) {
-                if (nearestSchoolLine) map.removeLayer(nearestSchoolLine);
-                
-                if (feature.properties.NEAREST_SCHOOL_COORDS) {
-                    const centroidCoords = turf.getCoord(turf.centroid(feature));
-                    const schoolCoords = feature.properties.NEAREST_SCHOOL_COORDS;
-                    
-                    const line = L.polyline([
-                        [centroidCoords[1], centroidCoords[0]], // مركز الحي
-                        [schoolCoords[1], schoolCoords[0]]      // أقرب مدرسة
-                    ], {
-                        color: 'blue',
-                        weight: 3,
-                        dashArray: '5, 5'
-                    });
-                    
-                    nearestSchoolLine = line.addTo(map);
-                }
-            });
         };
 
         // ==========================================================
@@ -187,63 +144,24 @@
             let schoolsData = fixSchoolGeometry(schoolsResponse[0]);
             const zonesData = zonesResponse[0];
 
+            // التأكد من أن لدينا نقاط مدارس صالحة للتحليل
             const schoolPoints = turf.featureCollection(schoolsData.features);
             const zonePolygons = zonesData.features;
 
-            // بيانات سكانية تقديرية (لتحليل الاكتظاظ - يجب شرح هذا للدكتورة)
-            const simulatedPopulation = [4500, 7000, 2000, 15000, 3000, 6000, 4000, 1800, 8000, 500];
-            
-            zonePolygons.forEach((zone, index) => {
-                const zoneCentroid = turf.centroid(zone);
+            // ------------------------------------
+            // أ. تحليل كثافة المدارس (Count)
+            // ------------------------------------
+            zonePolygons.forEach(zone => {
                 let count = 0;
-                
-                // 1. تحليل كثافة المدارس
                 schoolPoints.features.forEach(pt => {
                     if (turf.booleanPointInPolygon(pt, zone)) count++;
                 });
                 zone.properties.SCHOOL_COUNT = count;
-
-                // 2. تحليل الوصول (المسافة إلى أقرب مدرسة)
-                const nearest = turf.nearestPoint(zoneCentroid, schoolPoints);
-                const distanceInKm = turf.distance(zoneCentroid, nearest);
-                zone.properties.NEAREST_DISTANCE = distanceInKm * 1000; // بالعداد
-                zone.properties.NEAREST_SCHOOL_NAME = nearest.properties.Arabic_Sch || nearest.properties.English_Sc;
-                zone.properties.NEAREST_SCHOOL_COORDS = turf.getCoord(nearest);
-
-                // 3. تحليل الاكتظاظ (Capacity Analysis)
-                // يتم استخدام بيانات تقديرية
-                const pop = simulatedPopulation[index % simulatedPopulation.length] * 1.5; // توزيع السكان
-                zone.properties.POPULATION = pop; 
-                
-                if (count > 0) {
-                    zone.properties.POP_PER_SCHOOL = pop / count;
-                } else {
-                    zone.properties.POP_PER_SCHOOL = pop / 0.5; // قيمة عالية للإشارة للاكتظاظ/الحاجة
-                }
             });
 
             // ------------------------------------
-            // إضافة الطبقات للخريطة
+            // ب. إنشاء مناطق فورونوي (Voronoi Polygons) - تحليل النفوذ
             // ------------------------------------
-
-            // 1. طبقة المدارس
-            L.geoJSON(schoolPoints, {
-                pointToLayer: (feature, latlng) => {
-                    const schoolName = feature.properties.Arabic_Sch || feature.properties.English_Sc;
-                    return L.marker(latlng).bindPopup(`<b>${schoolName}</b>`);
-                }
-            }).eachLayer(layer => schoolsCluster.addLayer(layer));
-            
-            map.addLayer(schoolsCluster);
-
-
-            // 2. طبقة الأحياء (تحليل الوصول هو أساس التلوين)
-            zonesLayer.addData(zonesData).setStyle(getZoneStyle);
-            zonesLayer.eachLayer(onEachZone);
-            map.addLayer(zonesLayer);
-
-
-            // 3. إنشاء مناطق فورونوي (Voronoi Polygons)
             try {
                 const bbox = turf.bbox(schoolPoints);
                 const voronoiPolygons = turf.voronoi(schoolPoints, { bbox: bbox });
@@ -257,7 +175,7 @@
                     },
                     onEachFeature: (feature, layer) => {
                         const name = feature.properties.Arabic_Sch || feature.properties.English_Sc || 'مدرسة غير معروفة';
-                        layer.bindPopup(`منطقة النفوذ الأقرب للمدرسة: <b>${name}</b>`);
+                        layer.bindPopup(`منطقة نفوذ المدرسة: <b>${name}</b>`);
                     }
                 });
             } catch (e) {
@@ -266,9 +184,31 @@
 
 
             // ------------------------------------
-            // إعداد أدوات التحكم
+            // ج. إضافة الطبقات للخريطة
             // ------------------------------------
 
+            // 1. طبقة المدارس
+            L.geoJSON(schoolPoints, {
+                pointToLayer: (feature, latlng) => {
+                    const schoolName = feature.properties.Arabic_Sch || feature.properties.English_Sc;
+                    return L.marker(latlng).bindPopup(`<b>${schoolName}</b>`);
+                }
+            }).eachLayer(layer => schoolsCluster.addLayer(layer));
+            
+            map.addLayer(schoolsCluster);
+
+
+            // 2. طبقة الأحياء (تحليل الكثافة)
+            zonesLayer.addData(zonesData).setStyle(getZoneStyle);
+            zonesLayer.eachLayer(layer => onEachZone(layer.feature, layer));
+            map.addLayer(zonesLayer);
+
+
+            // ------------------------------------
+            // 4. إعداد أدوات التحكم
+            // ------------------------------------
+
+            // أ. أداة البحث (البحث في الأحياء)
             const searchControl = new L.Control.Search({
                 layer: zonesLayer,
                 propertyName: 'NAME',
@@ -282,32 +222,31 @@
             });
             map.addControl(searchControl);
 
+            // ب. قائمة الطبقات (Layer Control)
             L.control.layers(null, {
-                'حدود الأحياء (تحليل الوصول)': zonesLayer,
+                'حدود الأحياء (كثافة المدارس)': zonesLayer,
                 'مناطق النفوذ التعليمي (فورونوي)': voronoiLayer,
                 'مواقع المدارس': schoolsCluster
             }).addTo(map);
 
-            // إضافة وسيلة الإيضاح (Legend)
+            // ج. إضافة وسيلة الإيضاح (Legend)
             const legend = L.control({position: 'bottomright'});
             legend.onAdd = function (map) {
                 const div = L.DomUtil.create('div', 'info legend');
-                const grades = ['وصول ممتاز (< 500م)', 'وصول مقبول (500م - 1كم)', 'وصول ضعيف (> 1كم)'];
-                const colors = ['#1e7f3a', '#ffc107', '#c0392b'];
+                const grades = ['فجوة خدمة (0)', 'تغطية متوسطة (1-3)', 'تغطية عالية (4+)'];
+                const colors = ['#c0392b', '#ffc107', '#1e7f3a'];
 
-                div.innerHTML += '<b>مؤشر الوصول للمدرسة (مشي)</b><br>';
+                div.innerHTML += '<b>تحليل تغطية المدارس</b><br>';
                 for (let i = 0; i < colors.length; i++) {
                     div.innerHTML +=
                         '<i style="background:' + colors[i] + '"></i> ' + grades[i] + '<br>';
                 }
-                div.innerHTML += '<hr style="margin: 5px 0;">'
-                div.innerHTML += '<i style="background:blue; opacity: 1; border: none; height: 3px;"></i> خط المسافة الأقصر (انقر على الحي)';
                 return div;
             };
             legend.addTo(map);
 
         }).fail((err) => {
-            console.error("فشل في تحميل أحد ملفات GeoJSON. تأكد من وجود الملفات في نفس المجلد.", err);
+            console.error("فشل في تحميل أحد ملفات GeoJSON. تأكد من وجود ملفات Ramallah_Schools.json و RamallahZones.json في نفس المجلد.", err);
             alert("خطأ: يرجى التأكد من وجود ملفات Ramallah_Schools.json و RamallahZones.json في نفس المجلد.");
         });
     </script>
