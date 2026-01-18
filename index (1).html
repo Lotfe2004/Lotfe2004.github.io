@@ -2,23 +2,14 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>تحليل العدالة المكانية للمدارس – رام الله</title>
+<title>GIS TEST – RAMALLAH</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
-html, body { height:100%; margin:0; font-family:Arial; }
-#map { width:100%; height:100%; }
-.legend {
-    background:white;
-    padding:10px;
-    border-radius:6px;
-    line-height:18px;
-    box-shadow:0 0 10px rgba(0,0,0,0.3);
-}
-.legend i {
-    width:18px; height:18px; float:left;
-    margin-right:8px; opacity:0.8;
+html,body,#map{
+    height:100%;
+    margin:0;
 }
 </style>
 </head>
@@ -27,193 +18,107 @@ html, body { height:100%; margin:0; font-family:Arial; }
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
 <script>
-// ===================================================
-// 1️⃣ إعداد الخريطة
-// ===================================================
-const map = L.map('map').setView([31.903, 35.205], 14);
+// ===============================
+// 1️⃣ الخريطة
+// ===============================
+const map = L.map('map').setView([31.903, 35.205], 13);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap & CARTO'
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap'
 }).addTo(map);
 
-// ===================================================
-// 2️⃣ تعريف الطبقات
-// ===================================================
-const layers = {
-    schools: L.geoJSON().addTo(map),
-    hospitals: L.geoJSON(),
-    zones: L.geoJSON().addTo(map),
-    settlements: L.geoJSON(),
-    military: L.geoJSON(),
-    wadis: L.geoJSON(),
-    wells: L.geoJSON(),
-    natural: L.geoJSON(),
-    built: L.geoJSON(),
-    voronoi: L.geoJSON()
-};
-
-L.control.layers(null, {
-    "المدارس": layers.schools,
-    "المستشفيات": layers.hospitals,
-    "الأحياء": layers.zones,
-    "المستوطنات": layers.settlements,
-    "مواقع عسكرية": layers.military,
-    "الأودية": layers.wadis,
-    "الآبار": layers.wells,
-    "مناطق طبيعية": layers.natural,
-    "عمران": layers.built,
-    "مناطق النفوذ": layers.voronoi
-}).addTo(map);
-
-// ===================================================
-// 3️⃣ دوال مساعدة
-// ===================================================
-async function loadJSON(file) {
-    const res = await fetch(file);
-    if (!res.ok) throw new Error("فشل تحميل " + file);
-    return await res.json();
+// ===============================
+// 2️⃣ دالة آمنة لتحميل JSON
+// ===============================
+async function safeLoad(file){
+    try{
+        const r = await fetch(file);
+        if(!r.ok) throw new Error("HTTP error");
+        const j = await r.json();
+        console.log("Loaded:", file);
+        return j;
+    }catch(e){
+        console.error("FAILED:", file, e);
+        return null;
+    }
 }
 
-// تصحيح Geometry المدارس
-function fixSchoolGeometry(data) {
-    data.features = data.features.filter(f => {
-        if (!f.geometry && f.properties && f.properties.North && f.properties.East) {
-            f.geometry = {
-                type: "Point",
-                coordinates: [
-                    parseFloat(f.properties.East),
-                    parseFloat(f.properties.North)
-                ]
-            };
-            return true;
+// ===============================
+// 3️⃣ تصحيح المدارس (مهما كانت)
+// ===============================
+function fixSchools(data){
+    if(!data || !data.features) return [];
+
+    let fixed = [];
+
+    data.features.forEach(f=>{
+        // حالة GeoJSON طبيعي
+        if(f.geometry && f.geometry.type==="Point"){
+            fixed.push(f);
         }
-        return f.geometry && f.geometry.type === "Point";
+        // حالة East / North
+        else if(f.properties && f.properties.East && f.properties.North){
+            fixed.push({
+                type:"Feature",
+                properties:f.properties,
+                geometry:{
+                    type:"Point",
+                    coordinates:[
+                        Number(f.properties.East),
+                        Number(f.properties.North)
+                    ]
+                }
+            });
+        }
+        else{
+            console.warn("Skipped feature", f);
+        }
     });
-    return data;
+
+    console.log("Schools usable:", fixed.length);
+    return fixed;
 }
 
-// ===================================================
-// 4️⃣ تحميل البيانات
-// ===================================================
-Promise.all([
-    loadJSON("Ramallah_Schools.json").then(fixSchoolGeometry),
-    loadJSON("hospitals.geojson"),
-    loadJSON("RamallahZones.json"),
-    loadJSON("settlements.geojson"),
-    loadJSON("military.geojson"),
-    loadJSON("wadis.geojson"),
-    loadJSON("Wells.geojson"),
-    loadJSON("natural.json"),
-    loadJSON("built_up.json")
-]).then(([schools, hospitals, zones, settlements, military, wadis, wells, natural, built]) => {
+// ===============================
+// 4️⃣ تحميل وعرض الأحياء
+// ===============================
+safeLoad("RamallahZones.json").then(zones=>{
+    if(!zones) return;
 
-    // ===================================================
-    // 5️⃣ عرض الطبقات
-    // ===================================================
-    L.geoJSON(schools, {
-        pointToLayer:(f,latlng)=>
-            L.circleMarker(latlng,{
-                radius:6,
-                color:'#2c3e50',
-                fillOpacity:0.9
-            }).bindPopup(f.properties.Arabic_Sch || "مدرسة")
-    }).addTo(layers.schools);
-
-    L.geoJSON(hospitals,{
-        pointToLayer:(f,latlng)=>L.marker(latlng)
-    }).addTo(layers.hospitals);
-
-    L.geoJSON(settlements,{
-        style:{fillColor:'#8e44ad',fillOpacity:0.6,color:'#5e3370'}
-    }).addTo(layers.settlements);
-
-    L.geoJSON(military,{
-        style:{fillColor:'#2c3e50',fillOpacity:0.7}
-    }).addTo(layers.military);
-
-    L.geoJSON(wadis,{
-        style:{color:'#3498db',dashArray:'4'}
-    }).addTo(layers.wadis);
-
-    L.geoJSON(wells,{
-        pointToLayer:(f,latlng)=>L.circleMarker(latlng,{radius:4,color:'#16a085'})
-    }).addTo(layers.wells);
-
-    L.geoJSON(natural,{
-        style:{fillColor:'#27ae60',fillOpacity:0.4}
-    }).addTo(layers.natural);
-
-    L.geoJSON(built,{
-        style:{fillColor:'#95a5a6',fillOpacity:0.5}
-    }).addTo(layers.built);
-
-    // ===================================================
-    // 6️⃣ تحليل العدالة المكانية
-    // ===================================================
     L.geoJSON(zones,{
-        style: zone=>{
-            let count = 0;
-            schools.features.forEach(s=>{
-                if(turf.booleanPointInPolygon(s, zone)) count++;
-            });
-
-            zone.properties.school_count = count;
-
-            let color = '#c0392b';
-            if(count >= 4) color = '#1e8449';
-            else if(count >= 1) color = '#f1c40f';
-
-            return {
-                fillColor: color,
-                fillOpacity: 0.6,
-                color: '#fff',
-                weight: 1
-            };
+        style:{
+            color:"red",
+            weight:2,
+            fillOpacity:0.1
         },
         onEachFeature:(f,l)=>{
-            let status = "محروم";
-            if(f.properties.school_count >= 4) status = "تغطية عالية";
-            else if(f.properties.school_count >= 1) status = "تغطية متوسطة";
-
-            l.bindPopup(`
-                <b>${f.properties.NAME || "حي"}</b><br>
-                عدد المدارس: ${f.properties.school_count}<br>
-                الحالة: <b>${status}</b>
-            `);
+            l.bindPopup(f.properties?.NAME || "حي");
         }
-    }).addTo(layers.zones);
+    }).addTo(map);
 
-    // ===================================================
-    // 7️⃣ Voronoi (آمن)
-    // ===================================================
-    const pts = turf.featureCollection(schools.features);
-    if (pts.features.length > 2) {
-        const vor = turf.voronoi(pts, { bbox: turf.bbox(pts) });
-        L.geoJSON(vor,{
-            style:{fillColor:'#9b59b6',fillOpacity:0.15,color:'#8e44ad'}
-        }).addTo(layers.voronoi);
-    }
+    try{
+        map.fitBounds(L.geoJSON(zones).getBounds());
+    }catch{}
+});
 
-    // ===================================================
-    // 8️⃣ Legend
-    // ===================================================
-    const legend = L.control({position:'bottomright'});
-    legend.onAdd = ()=>{
-        const d = L.DomUtil.create('div','legend');
-        d.innerHTML="<b>تغطية المدارس</b><br>";
-        d.innerHTML+='<i style="background:#1e8449"></i> عالية<br>';
-        d.innerHTML+='<i style="background:#f1c40f"></i> متوسطة<br>';
-        d.innerHTML+='<i style="background:#c0392b"></i> محرومة<br>';
-        return d;
-    };
-    legend.addTo(map);
+// ===============================
+// 5️⃣ تحميل وعرض المدارس (مضمون)
+// ===============================
+safeLoad("Ramallah_Schools.json").then(data=>{
+    const schools = fixSchools(data);
 
-}).catch(err=>{
-    console.error(err);
-    alert("حدث خطأ أثناء تحميل البيانات، راجع Console");
+    schools.forEach(s=>{
+        const c = s.geometry.coordinates;
+        if(!isNaN(c[0]) && !isNaN(c[1])){
+            L.circleMarker([c[1],c[0]],{
+                radius:5,
+                color:"blue",
+                fillOpacity:0.8
+            }).addTo(map);
+        }
+    });
 });
 </script>
 </body>
