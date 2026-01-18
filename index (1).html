@@ -1,13 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>Ramallah Web Map - Schools Proximity</title>
+<title>تحليل العدالة المكانية للخدمات التعليمية – رام الله</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
 <style>
-    body { margin:0; padding:0; }
-    #map { width:100%; height:100vh; }
+html, body { height:100%; margin:0; font-family:Arial; }
+#map { width:100%; height:100%; }
+.legend {
+    background:white;
+    padding:10px;
+    border-radius:6px;
+    box-shadow:0 0 10px rgba(0,0,0,0.3);
+    line-height:18px;
+}
+.legend i {
+    width:18px; height:18px; float:left;
+    margin-right:8px; opacity:0.8;
+}
 </style>
 </head>
 
@@ -18,191 +30,160 @@
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
 <script>
-// =====================================================
-// 1) MAP INITIALIZATION
-// =====================================================
-var map = L.map("map").setView([31.9, 35.2], 13);
+// =======================
+// إعداد الخريطة
+// =======================
+const map = L.map('map').setView([31.903, 35.205], 14);
 
-L.tileLayer(
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    { maxZoom: 19 }
-).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap & CARTO'
+}).addTo(map);
 
-// =====================================================
-// 1.1) PANES
-// =====================================================
-map.createPane("builtupPane");
-map.getPane("builtupPane").style.zIndex = 400;
+// =======================
+// تعريف الطبقات
+// =======================
+const layers = {
+    schools: L.geoJSON(),
+    hospitals: L.geoJSON(),
+    zones: L.geoJSON(),
+    settlements: L.geoJSON(),
+    military: L.geoJSON(),
+    wadis: L.geoJSON(),
+    wells: L.geoJSON(),
+    natural: L.geoJSON(),
+    built: L.geoJSON(),
+    voronoi: L.geoJSON()
+};
 
-map.createPane("wadiPane");
-map.getPane("wadiPane").style.zIndex = 450;
+L.control.layers(null, {
+    "المدارس": layers.schools,
+    "المستشفيات": layers.hospitals,
+    "الأحياء": layers.zones,
+    "المستوطنات": layers.settlements,
+    "مواقع عسكرية": layers.military,
+    "الأودية": layers.wadis,
+    "الآبار": layers.wells,
+    "مناطق طبيعية": layers.natural,
+    "عمران": layers.built,
+    "مناطق النفوذ": layers.voronoi
+}).addTo(map);
 
-// =====================================================
-// 2) GEOJSON LOADER
-// =====================================================
-function loadGeoJSON(file, options = {}) {
-    return fetch(encodeURI(file))
-    .then(res => {
-        if (!res.ok) throw new Error(file + " not found");
-        return res.json();
-    })
-    .then(data => {
-        return L.geoJSON(data, {
-            pane: options.pane,
-            style: function(feature){
-                if (feature.geometry.type !== "Point" && options.style) {
-                    return options.style;
-                }
-            },
-            pointToLayer: function(feature, latlng){
-                return L.marker(latlng);
-            },
-            onEachFeature: function(feature, layer){
-                let html = "<table>";
-                for (let k in feature.properties){
-                    html += `<tr><td><b>${k}</b></td><td>${feature.properties[k]}</td></tr>`;
-                }
-                html += "</table>";
-                layer.bindPopup(html);
-            }
-        });
-    })
-    .catch(err => {
-        console.warn(err.message);
-        return L.layerGroup();
-    });
+// =======================
+// تحميل البيانات
+// =======================
+async function loadJSON(file) {
+    const res = await fetch(file);
+    return await res.json();
 }
 
-// =====================================================
-// 3) LOAD ALL LAYERS
-// =====================================================
 Promise.all([
-    loadGeoJSON("ramallah.json", { style:{ color:"#000", weight:3, fillOpacity:0 } }),
-    loadGeoJSON("built_up.json", { pane:"builtupPane", style:{ color:"#ff7800", weight:1, fillOpacity:0.6 } }),
-    loadGeoJSON("roods.json", { style:{ color:"#0066ff", weight:2 } }),
-    loadGeoJSON("natural.json", { style:{ color:"#2e8b57", fillOpacity:0.4 } }),
-    loadGeoJSON("schools.json"),
-    loadGeoJSON("Wells.geojson"),
-    loadGeoJSON("الودية.geojson", { pane:"wadiPane", style:{ color:"#0000ff", weight:3, opacity:1 } }),
-    loadGeoJSON("البؤر_الاستيطانية.geojson"),
-    loadGeoJSON("العيادات.geojson"),
-    loadGeoJSON("المواقع_العسكرية.geojson"),
-    loadGeoJSON("كسارات.geojson"),
-    loadGeoJSON("مستوطنات.geojson")
-]).then(function(layers){
+    loadJSON("Ramallah_Schools.json"),
+    loadJSON("مستشفيات.geojson"),
+    loadJSON("RamallahZones.json"),
+    loadJSON("مستوطنات.geojson"),
+    loadJSON("المواقع_العسكرية.geojson"),
+    loadJSON("الأودية.geojson"),
+    loadJSON("Wells.geojson"),
+    loadJSON("natural.json"),
+    loadJSON("built_up.json")
+]).then(([schools, hospitals, zones, settlements, military, wadis, wells, natural, built]) => {
 
-    // =========================
-    // Add all layers to map
-    // =========================
-    var overlays = {
-        "Ramallah Boundary": layers[0].addTo(map),
-        "Built-up Areas": layers[1].addTo(map),
-        "Road Network": layers[2].addTo(map),
-        "Natural Areas": layers[3].addTo(map),
-        "Schools": layers[4].addTo(map),
-        "Wells": layers[5].addTo(map),
-        "الأودية": layers[6].addTo(map),
-        "البؤر الاستيطانية": layers[7].addTo(map),
-        "العيادات": layers[8].addTo(map),
-        "المواقع العسكرية": layers[9].addTo(map),
-        "كسارات": layers[10].addTo(map),
-        "مستوطنات": layers[11].addTo(map)
-    };
-    L.control.layers(null, overlays).addTo(map);
+    // المدارس
+    L.geoJSON(schools, {
+        pointToLayer:(f,latlng)=>
+            L.circleMarker(latlng,{radius:6,color:'#2c3e50',fillOpacity:0.9})
+    }).addTo(layers.schools).addTo(map);
 
-    map.fitBounds(layers[0].getBounds());
+    // المستشفيات
+    L.geoJSON(hospitals,{
+        pointToLayer:(f,latlng)=>L.marker(latlng)
+    }).addTo(layers.hospitals);
 
-    // =====================================================
-    // 4) PROXIMITY ANALYSIS FOR SCHOOLS WITH LINES
-    // =====================================================
-    var schoolsLayer = layers[4];
-    var roadsLayer = layers[2];
-    var dangerLayer = L.featureGroup([layers[7], layers[11], layers[9]]);
-    var naturalLayer = L.featureGroup([layers[3], layers[6]]);
-    var clinicsLayer = layers[8];
+    // المستوطنات
+    L.geoJSON(settlements,{
+        style:{fillColor:'#8e44ad',fillOpacity:0.6,color:'#5e3370'}
+    }).addTo(layers.settlements);
 
-    schoolsLayer.eachLayer(function(schoolMarker){
-        var schoolPoint = schoolMarker.feature;
+    // المواقع العسكرية
+    L.geoJSON(military,{
+        style:{fillColor:'#2c3e50',fillOpacity:0.7}
+    }).addTo(layers.military);
 
-        // ----------------------------
-        // Helper function: find closest feature and return its coordinates
-        // ----------------------------
-        function findClosest(layerGroup, pointFeature, isLine=false){
-            var minDist = Infinity;
-            var closestCoord = null;
+    // الأودية
+    L.geoJSON(wadis,{
+        style:{color:'#3498db',dashArray:'4'}
+    }).addTo(layers.wadis);
 
-            layerGroup.eachLayer(function(l){
-                var dist;
-                if(isLine){
-                    dist = turf.pointToLineDistance(pointFeature, l.feature, {units:'meters'});
-                    // لإيجاد أقرب نقطة على الخط
-                    var snapped = turf.nearestPointOnLine(l.feature, pointFeature);
-                    var coords = snapped.geometry.coordinates;
-                    if(dist < minDist){
-                        minDist = dist;
-                        closestCoord = coords;
-                    }
-                } else {
-                    dist = turf.distance(pointFeature, l.feature, {units:'meters'});
-                    var coords = l.feature.geometry.coordinates;
-                    if(dist < minDist){
-                        minDist = dist;
-                        closestCoord = coords;
-                        minDist = dist;
-                    }
-                }
+    // الآبار
+    L.geoJSON(wells,{
+        pointToLayer:(f,latlng)=>L.circleMarker(latlng,{radius:4,color:'#16a085'})
+    }).addTo(layers.wells);
+
+    // المناطق الطبيعية
+    L.geoJSON(natural,{
+        style:{fillColor:'#27ae60',fillOpacity:0.4}
+    }).addTo(layers.natural);
+
+    // العمران
+    L.geoJSON(built,{
+        style:{fillColor:'#95a5a6',fillOpacity:0.5}
+    }).addTo(layers.built);
+
+    // =======================
+    // تحليل العدالة المكانية
+    // =======================
+    L.geoJSON(zones,{
+        style: zone=>{
+            let count=0;
+            schools.features.forEach(s=>{
+                if(turf.booleanPointInPolygon(s,zone)) count++;
             });
-            return {distance: minDist, coord: closestCoord};
+
+            zone.properties.count=count;
+
+            let color='#c0392b';
+            if(count>=4) color='#1e8449';
+            else if(count>=1) color='#f1c40f';
+
+            return {fillColor:color,fillOpacity:0.6,color:'#fff'};
+        },
+        onEachFeature:(f,l)=>{
+            let status="محروم";
+            if(f.properties.count>=4) status="تغطية عالية";
+            else if(f.properties.count>=1) status="تغطية متوسطة";
+
+            l.bindPopup(`
+            <b>${f.properties.NAME}</b><br>
+            عدد المدارس: ${f.properties.count}<br>
+            الحالة: <b>${status}</b>
+            `);
         }
+    }).addTo(layers.zones).addTo(map);
 
-        // أقرب شارع
-        var street = findClosest(roadsLayer, schoolPoint, true);
-        // أقرب خطر
-        var danger = findClosest(dangerLayer, schoolPoint);
-        // أقرب طبيعة
-        var natural = findClosest(naturalLayer, schoolPoint);
-        // أقرب مركز صحي
-        var clinic = findClosest(clinicsLayer, schoolPoint);
+    // =======================
+    // Voronoi
+    // =======================
+    const pts=turf.featureCollection(schools.features);
+    const vor=turf.voronoi(pts,{bbox:turf.bbox(pts)});
 
-        // ----------------------------
-        // حفظ الخصائص
-        // ----------------------------
-        schoolMarker.feature.properties.distanceToStreet = street.distance.toFixed(2) + " m";
-        schoolMarker.feature.properties.distanceToDanger = danger.distance.toFixed(2) + " m";
-        schoolMarker.feature.properties.distanceToNatural = natural.distance.toFixed(2) + " m";
-        schoolMarker.feature.properties.distanceToClinic = clinic.distance.toFixed(2) + " m";
+    L.geoJSON(vor,{
+        style:{fillColor:'#9b59b6',fillOpacity:0.15,color:'#8e44ad'}
+    }).addTo(layers.voronoi);
 
-        // ----------------------------
-        // تحديث Popup
-        // ----------------------------
-        let html = "<table>";
-        for (let k in schoolMarker.feature.properties){
-            html += `<tr><td><b>${k}</b></td><td>${schoolMarker.feature.properties[k]}</td></tr>`;
-        }
-        html += "</table>";
-        schoolMarker.bindPopup(html);
-
-        // ----------------------------
-        // رسم خطوط توضيحية
-        // ----------------------------
-        function drawLine(coord, color){
-            if(coord){
-                L.polyline([
-                    [schoolPoint.geometry.coordinates[1], schoolPoint.geometry.coordinates[0]],
-                    [coord[1], coord[0]]
-                ], {color: color, weight:2, dashArray:'5,5'}).addTo(map);
-            }
-        }
-
-        drawLine(street.coord, "#ff6600");    // برتقالي = شارع
-        drawLine(danger.coord, "#ff0000");    // أحمر = خطر
-        drawLine(natural.coord, "#00cc00");   // أخضر = طبيعة
-        drawLine(clinic.coord, "#0000ff");    // أزرق = مركز صحي
-
-    });
-
+    // =======================
+    // Legend
+    // =======================
+    const legend=L.control({position:'bottomright'});
+    legend.onAdd=()=>{
+        const d=L.DomUtil.create('div','legend');
+        d.innerHTML="<b>تغطية المدارس</b><br>";
+        d.innerHTML+='<i style="background:#1e8449"></i> عالية<br>';
+        d.innerHTML+='<i style="background:#f1c40f"></i> متوسطة<br>';
+        d.innerHTML+='<i style="background:#c0392b"></i> محرومة<br>';
+        return d;
+    };
+    legend.addTo(map);
 });
 </script>
 </body>
 </html>
-
