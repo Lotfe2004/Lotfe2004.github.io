@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>School Deficit Analysis - Ramallah</title>
+<title>Ramallah Smart School Planning Web GIS</title>
 
 <link rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -10,6 +10,23 @@ href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
 html, body { height:100%; margin:0; }
 #map { height:100%; }
+
+.info {
+    background:white;
+    padding:10px;
+    font-size:14px;
+    box-shadow:0 0 5px rgba(0,0,0,0.4);
+}
+
+.blink {
+    animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+    0% { fill-opacity:0.2; }
+    50% { fill-opacity:0.6; }
+    100% { fill-opacity:0.2; }
+}
 </style>
 </head>
 
@@ -20,35 +37,38 @@ html, body { height:100%; margin:0; }
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
 <script>
-// =======================
+// ============================
 // 1. MAP
-// =======================
+// ============================
 var map = L.map("map").setView([31.9, 35.2], 13);
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19
+    maxZoom:19
 }).addTo(map);
 
-// =======================
-// 2. LOAD DATA
-// =======================
+// ============================
+// 2. LOAD ALL DATA
+// ============================
 Promise.all([
     fetch("ramallah.json").then(r=>r.json()),
-    fetch("Ramallah_Schools.json").then(r=>r.json())
-]).then(([city, schools]) => {
+    fetch("Ramallah_Schools.json").then(r=>r.json()),
+    fetch("roads.json").then(r=>r.json()),
+    fetch("built_up.json").then(r=>r.json()),
+    fetch("natural.json").then(r=>r.json())
+]).then(([city, schools, roads, builtup, natural]) => {
 
-    // حدود رام الله
-    var cityLayer = L.geoJSON(city,{
-        style:{color:"black",weight:3,fillOpacity:0}
-    }).addTo(map);
+    // ============================
+    // 3. DISPLAY ALL LAYERS
+    // ============================
+    L.geoJSON(city,{style:{color:"#000",weight:3,fillOpacity:0}}).addTo(map);
+    L.geoJSON(roads,{style:{color:"#1565c0",weight:2}}).addTo(map);
+    L.geoJSON(builtup,{style:{color:"#ff9800",fillOpacity:0.4}}).addTo(map);
+    L.geoJSON(natural,{style:{color:"#2e7d32",fillOpacity:0.4}}).addTo(map);
 
-    map.fitBounds(cityLayer.getBounds());
-
-    // المدارس
-    L.geoJSON(schools,{
+    var schoolLayer = L.geoJSON(schools,{
         pointToLayer:(f,latlng)=>
             L.circleMarker(latlng,{
-                radius:5,
+                radius:6,
                 fillColor:"orange",
                 color:"#000",
                 weight:1,
@@ -56,64 +76,100 @@ Promise.all([
             })
     }).addTo(map);
 
-    // =======================
-    // 3. GRID (500m)
-    // =======================
+    map.fitBounds(L.geoJSON(city).getBounds());
+
+    // ============================
+    // 4. GRID ANALYSIS (500m)
+    // ============================
     var bbox = turf.bbox(city);
     var grid = turf.squareGrid(bbox, 0.5, {units:"kilometers"});
 
     grid.features.forEach(cell => {
 
-        // فقط المربعات داخل رام الله
         if(!turf.booleanIntersects(cell, city.features[0])) return;
 
-        // حساب عدد المدارس داخل المربع
         var count = 0;
+        var schoolsInside = [];
+
         schools.features.forEach(s => {
-            if(turf.booleanPointInPolygon(s, cell)) count++;
+            if(turf.booleanPointInPolygon(s, cell)){
+                count++;
+                schoolsInside.push(s);
+            }
         });
 
         cell.properties.schoolCount = count;
 
-        var color = count === 0 ? "red" : "green";
+        var isShortage = count === 0;
 
-        L.geoJSON(cell,{
+        var cellLayer = L.geoJSON(cell,{
             style:{
-                color:color,
+                color: isShortage ? "red" : "green",
                 weight:1,
-                fillOpacity:0.4
+                fillOpacity:0.3,
+                className: isShortage ? "blink" : ""
             }
-        }).addTo(map)
-        .bindPopup(`
-            <b>عدد المدارس:</b> ${count}<br>
-            ${count === 0 ? "❌ منطقة نقص مدارس" : "✔️ منطقة مخدومة"}
-        `);
+        }).addTo(map);
 
-        // =======================
-        // 4. اقتراح مدرسة جديدة
-        // =======================
-        if(count === 0){
-            var center = turf.centerOfMass(cell);
+        // ============================
+        // 5. CLICK INTERACTION
+        // ============================
+        cellLayer.on("click", function(){
 
-            var estimatedPrice = 300; // تقديري
+            var html = `
+            <b>تحليل المنطقة</b><br>
+            عدد المدارس: ${count}<br>
+            ${isShortage ? "❌ منطقة تعاني من نقص خدمات تعليمية" : "✔️ منطقة مخدومة"}
+            `;
 
-            L.marker([
-                center.geometry.coordinates[1],
-                center.geometry.coordinates[0]
-            ],{
-                icon:L.icon({
-                    iconUrl:"https://cdn-icons-png.flaticon.com/512/167/167707.png",
-                    iconSize:[26,26]
-                })
-            }).addTo(map)
-            .bindPopup(`
-                <b>موقع مقترح لبناء مدرسة</b><br>
-                سعر تقديري للأرض:<br>
-                ${estimatedPrice} دينار / م²
-            `);
-        }
+            if(isShortage){
+                var center = turf.centerOfMass(cell);
+
+                // تقدير سعر الأرض
+                var basePrice = 300;
+                var price = basePrice + Math.random()*150;
+
+                L.marker([
+                    center.geometry.coordinates[1],
+                    center.geometry.coordinates[0]
+                ],{
+                    icon:L.icon({
+                        iconUrl:"https://cdn-icons-png.flaticon.com/512/167/167707.png",
+                        iconSize:[30,30]
+                    })
+                }).addTo(map)
+                .bindPopup(`
+                    <b>موقع مقترح لبناء مدرسة</b><br>
+                    سبب الاختيار: نقص خدمات تعليمية<br><br>
+                    السعر التقديري للأرض:<br>
+                    <b>${price.toFixed(0)} دينار / م²</b>
+                `).openPopup();
+
+                html += "<br><b>✔️ تم اقتراح موقع مدرسة جديدة</b>";
+            }
+
+            L.popup()
+            .setLatLng(map.getCenter())
+            .setContent(html)
+            .openOn(map);
+        });
 
     });
+
+    // ============================
+    // 6. INFO PANEL
+    // ============================
+    var info = L.control({position:"topright"});
+    info.onAdd = function(){
+        var div = L.DomUtil.create("div","info");
+        div.innerHTML = `
+        <b>مشروع تحليل توزيع المدارس</b><br>
+        عدد المدارس الكلي: ${schools.features.length}<br>
+        اضغطي على أي منطقة لرؤية التحليل
+        `;
+        return div;
+    };
+    info.addTo(map);
 
 });
 </script>
