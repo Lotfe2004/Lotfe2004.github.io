@@ -2,47 +2,23 @@
 <html lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>تحليل توزيع المدارس في رام الله</title>
+<title>نظام تحليل توزيع المدارس – رام الله</title>
 
-<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
 <style>
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-}
-
+body { margin:0; font-family: Arial }
+#map { height: 90vh; }
 #header {
-    background: #1e3d59;
-    color: white;
-    padding: 10px;
-    text-align: center;
+  background:#1e3d59; color:white; padding:10px; text-align:center
 }
-
-#map {
-    height: 90vh;
-    width: 100%;
-}
-
 .info {
-    background: white;
-    padding: 8px;
-    font-size: 14px;
+  background:white; padding:10px; font-size:14px
 }
-
-.legend {
-    background: white;
-    padding: 10px;
-    line-height: 18px;
-    color: #333;
-}
-.legend i {
-    width: 18px;
-    height: 18px;
-    float: left;
-    margin-right: 8px;
-    opacity: 0.8;
+.search {
+  padding:6px; width:200px
 }
 </style>
 </head>
@@ -50,146 +26,106 @@ body {
 <body>
 
 <div id="header">
-    <h2>تحليل توزيع المدارس في محافظة رام الله</h2>
-    <p id="schoolCount">عدد المدارس: ...</p>
+  <h2>تحليل توزيع المدارس في محافظة رام الله</h2>
+  <input id="searchBox" class="search" placeholder="ابحث عن تجمع سكني...">
 </div>
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <script>
-// =====================
-// 1️⃣ إنشاء الخريطة
-// =====================
-var map = L.map('map').setView([31.9, 35.2], 11);
+var map = L.map('map').setView([31.9,35.2],11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
+// ================= Layers =================
+var schoolsData, settlementsData, builtUpData;
+var schoolLayer, settlementLayer, proposedLayer;
+
+// ================= Load Schools =================
+fetch('Ramallah_Schools.json')
+.then(r=>r.json())
+.then(data=>{
+  schoolsData = data;
+  schoolLayer = L.geoJSON(data,{
+    pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:'red',fillOpacity:0.8})
+  }).addTo(map);
+});
+
+// ================= Load Built-up =================
+fetch('built_up.json')
+.then(r=>r.json())
+.then(data=> builtUpData = data);
+
+// ================= Load Settlements =================
+fetch('settlements.geojson')
+.then(r=>r.json())
+.then(data=>{
+  settlementsData = data;
+
+  settlementLayer = L.geoJSON(data,{
+    style:{color:'blue',fillOpacity:0.1},
+    onEachFeature:(feature,layer)=>{
+
+      layer.on('click', ()=> analyzeSettlement(feature,layer));
+    }
+  }).addTo(map);
+
+  map.fitBounds(settlementLayer.getBounds());
+});
+
+// ================= Core Analysis =================
+function analyzeSettlement(feature, layer){
+
+  var population = feature.properties.population || 0;
+
+  // Count schools inside settlement
+  var count = 0;
+  schoolsData.features.forEach(s=>{
+    if(turf.booleanPointInPolygon(s, feature)) count++;
+  });
+
+  // معيار النقص (مثال)
+  var needed = Math.ceil(population / 3000);
+  var status = count < needed ? "❌ يوجد نقص" : "✅ كافٍ";
+
+  // اقتراح موقع مدرسة
+  var proposedPoint = null;
+  if(count < needed && builtUpData){
+    proposedPoint = turf.centroid(feature);
+    if(proposedLayer) map.removeLayer(proposedLayer);
+    proposedLayer = L.geoJSON(proposedPoint,{
+      pointToLayer:(f,ll)=>L.marker(ll)
+        .bindPopup("📍 موقع مقترح لبناء مدرسة")
+    }).addTo(map);
+  }
+
+  layer.bindPopup(`
+    <b>${feature.properties.name}</b><br>
+    👥 عدد السكان: ${population}<br>
+    🏫 عدد المدارس: ${count}<br>
+    📊 الاحتياج: ${needed}<br>
+    ⚠️ الحالة: ${status}
+  `).openPopup();
+}
+
+// ================= Search =================
+document.getElementById("searchBox").addEventListener("keyup", function(e){
+  var value = e.target.value.toLowerCase();
+  settlementLayer.eachLayer(l=>{
+    var name = l.feature.properties.name.toLowerCase();
+    if(name.includes(value)){
+      map.fitBounds(l.getBounds());
+      l.fire('click');
+    }
+  });
+});
+
+// ================= Controls =================
+L.control.layers(null,{
+  "المدارس":schoolLayer,
+  "التجمعات السكنية":settlementLayer,
+  "موقع مدرسة مقترح":proposedLayer
 }).addTo(map);
 
-// =====================
-// 2️⃣ تعريف الطبقات
-// =====================
-var ramallahLayer, schoolsLayer, builtUpLayer, roadsLayer, proposedLayer;
-
-// =====================
-// 3️⃣ حدود رام الله
-// =====================
-fetch('ramallah.json')
-.then(r => r.json())
-.then(data => {
-    ramallahLayer = L.geoJSON(data, {
-        style: {
-            color: 'black',
-            weight: 2,
-            fillOpacity: 0
-        }
-    }).addTo(map);
-    map.fitBounds(ramallahLayer.getBounds());
-});
-
-// =====================
-// 4️⃣ المدارس + الإحصاء
-// =====================
-fetch('Ramallah_Schools.json')
-.then(r => r.json())
-.then(data => {
-    schoolsLayer = L.geoJSON(data, {
-        pointToLayer: (f, latlng) => L.circleMarker(latlng, {
-            radius: 6,
-            fillColor: "red",
-            color: "white",
-            weight: 1,
-            fillOpacity: 0.9
-        }),
-        onEachFeature: (f, l) => {
-            l.bindPopup("<b>مدرسة</b><br>" + (f.properties.name || ""));
-        }
-    }).addTo(map);
-
-    document.getElementById("schoolCount").innerText =
-        "عدد المدارس: " + data.features.length;
-});
-
-// =====================
-// 5️⃣ المناطق المبنية
-// =====================
-fetch('built_up.json')
-.then(r => r.json())
-.then(data => {
-    builtUpLayer = L.geoJSON(data, {
-        style: {
-            color: "orange",
-            weight: 1,
-            fillOpacity: 0.3
-        }
-    }).addTo(map);
-});
-
-// =====================
-// 6️⃣ الطرق (للاقتراح)
-// =====================
-fetch('roads.json')
-.then(r => r.json())
-.then(data => {
-    roadsLayer = L.geoJSON(data, {
-        style: {
-            color: "gray",
-            weight: 1
-        }
-    });
-});
-
-// =====================
-// 7️⃣ مدارس مقترحة (مناطق نقص)
-// =====================
-// إذا لم يكن عندك ملف، يمكنك إنشاؤه في QGIS
-fetch('proposed_schools.geojson')
-.then(r => r.json())
-.then(data => {
-    proposedLayer = L.geoJSON(data, {
-        pointToLayer: (f, latlng) => L.circleMarker(latlng, {
-            radius: 7,
-            fillColor: "green",
-            color: "darkgreen",
-            weight: 1,
-            fillOpacity: 0.9
-        }),
-        onEachFeature: (f, l) => {
-            l.bindPopup("<b>موقع مدرسة مقترحة</b>");
-        }
-    }).addTo(map);
-});
-
-// =====================
-// 8️⃣ التحكم بالطبقات
-// =====================
-var overlays = {
-    "حدود رام الله": ramallahLayer,
-    "المدارس الحالية": schoolsLayer,
-    "المناطق المبنية": builtUpLayer,
-    "الطرق": roadsLayer,
-    "مدارس مقترحة": proposedLayer
-};
-
-L.control.layers(null, overlays).addTo(map);
-
-// =====================
-// 9️⃣ Legend
-// =====================
-var legend = L.control({position: 'bottomright'});
-legend.onAdd = function () {
-    var div = L.DomUtil.create('div', 'legend');
-    div.innerHTML += "<b>Legend</b><br>";
-    div.innerHTML += '<i style="background:red"></i> المدارس<br>';
-    div.innerHTML += '<i style="background:orange"></i> مناطق مبنية<br>';
-    div.innerHTML += '<i style="background:green"></i> مدارس مقترحة<br>';
-    return div;
-};
-legend.addTo(map);
-
 </script>
-
 </body>
 </html>
