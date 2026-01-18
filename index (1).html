@@ -1,15 +1,19 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GIS TEST – RAMALLAH</title>
+<title>Ramallah Schools Proximity Web GIS</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
-html,body,#map{
-    height:100%;
-    margin:0;
+body { margin:0; padding:0; }
+#map { width:100%; height:100vh; }
+.legend {
+    background:white;
+    padding:10px;
+    line-height:18px;
+    font-size:14px;
 }
 </style>
 </head>
@@ -18,108 +22,119 @@ html,body,#map{
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
 <script>
-// ===============================
-// 1️⃣ الخريطة
-// ===============================
-const map = L.map('map').setView([31.903, 35.205], 13);
+// ==============================
+// 1. MAP INITIALIZATION
+// ==============================
+var map = L.map("map").setView([31.9, 35.2], 13);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-    attribution:'© OpenStreetMap'
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19
 }).addTo(map);
 
-// ===============================
-// 2️⃣ دالة آمنة لتحميل JSON
-// ===============================
-async function safeLoad(file){
-    try{
-        const r = await fetch(file);
-        if(!r.ok) throw new Error("HTTP error");
-        const j = await r.json();
-        console.log("Loaded:", file);
-        return j;
-    }catch(e){
-        console.error("FAILED:", file, e);
-        return null;
-    }
+// ==============================
+// 2. LOAD GEOJSON FUNCTION
+// ==============================
+function loadGeoJSON(path, options = {}) {
+    return fetch(encodeURI(path))
+    .then(res => res.json())
+    .then(data => L.geoJSON(data, {
+        style: options.style,
+        pointToLayer: (f, latlng) => options.icon ? L.marker(latlng, {icon: options.icon}) : L.marker(latlng),
+        onEachFeature: (f, l) => {
+            let html = "<table>";
+            for (let k in f.properties) {
+                html += `<tr><td><b>${k}</b></td><td>${f.properties[k]}</td></tr>`;
+            }
+            html += "</table>";
+            l.bindPopup(html);
+        }
+    }));
 }
 
-// ===============================
-// 3️⃣ تصحيح المدارس (مهما كانت)
-// ===============================
-function fixSchools(data){
-    if(!data || !data.features) return [];
+// ==============================
+// 3. LOAD LAYERS
+// ==============================
+Promise.all([
+    loadGeoJSON("data/ramallah.json", { style:{color:"#000", weight:3, fillOpacity:0} }),
+    loadGeoJSON("data/built_up.json", { style:{color:"#ff9800", fillOpacity:0.5} }),
+    loadGeoJSON("data/roads.json", { style:{color:"#1565c0", weight:2} }),
+    loadGeoJSON("data/natural.json", { style:{color:"#2e7d32", fillOpacity:0.4} }),
+    loadGeoJSON("data/Ramallah_Schools.json"),
+    loadGeoJSON("data/العيادات.geojson"),
+    loadGeoJSON("data/settlements.geojson", { style:{color:"#d32f2f"} }),
+    loadGeoJSON("data/military.geojson"),
+]).then(layers => {
 
-    let fixed = [];
+    var overlays = {
+        "Ramallah Boundary": layers[0].addTo(map),
+        "Built-up Areas": layers[1].addTo(map),
+        "Roads": layers[2].addTo(map),
+        "Natural Areas": layers[3].addTo(map),
+        "Schools": layers[4].addTo(map),
+        "Clinics": layers[5].addTo(map),
+        "Settlements": layers[6].addTo(map),
+        "Military Sites": layers[7].addTo(map)
+    };
 
-    data.features.forEach(f=>{
-        // حالة GeoJSON طبيعي
-        if(f.geometry && f.geometry.type==="Point"){
-            fixed.push(f);
-        }
-        // حالة East / North
-        else if(f.properties && f.properties.East && f.properties.North){
-            fixed.push({
-                type:"Feature",
-                properties:f.properties,
-                geometry:{
-                    type:"Point",
-                    coordinates:[
-                        Number(f.properties.East),
-                        Number(f.properties.North)
-                    ]
+    L.control.layers(null, overlays).addTo(map);
+    map.fitBounds(layers[0].getBounds());
+
+    // ==============================
+    // 4. PROXIMITY ANALYSIS
+    // ==============================
+    layers[4].eachLayer(school => {
+        var schoolPoint = school.feature;
+
+        function closest(layer) {
+            var min = Infinity, coord;
+            layer.eachLayer(l => {
+                var d = turf.distance(schoolPoint, l.feature, {units:'meters'});
+                if (d < min) {
+                    min = d;
+                    coord = l.feature.geometry.coordinates;
                 }
             });
+            return {dist:min, coord:coord};
         }
-        else{
-            console.warn("Skipped feature", f);
-        }
-    });
 
-    console.log("Schools usable:", fixed.length);
-    return fixed;
-}
+        var clinic = closest(layers[5]);
+        var danger = closest(layers[6]);
 
-// ===============================
-// 4️⃣ تحميل وعرض الأحياء
-// ===============================
-safeLoad("RamallahZones.json").then(zones=>{
-    if(!zones) return;
+        school.feature.properties.Distance_to_Clinic = clinic.dist.toFixed(1) + " m";
+        school.feature.properties.Distance_to_Danger = danger.dist.toFixed(1) + " m";
 
-    L.geoJSON(zones,{
-        style:{
-            color:"red",
-            weight:2,
-            fillOpacity:0.1
-        },
-        onEachFeature:(f,l)=>{
-            l.bindPopup(f.properties?.NAME || "حي");
-        }
-    }).addTo(map);
+        L.polyline([
+            [schoolPoint.geometry.coordinates[1], schoolPoint.geometry.coordinates[0]],
+            [clinic.coord[1], clinic.coord[0]]
+        ], {color:"blue", dashArray:"5,5"}).addTo(map);
 
-    try{
-        map.fitBounds(L.geoJSON(zones).getBounds());
-    }catch{}
-});
-
-// ===============================
-// 5️⃣ تحميل وعرض المدارس (مضمون)
-// ===============================
-safeLoad("Ramallah_Schools.json").then(data=>{
-    const schools = fixSchools(data);
-
-    schools.forEach(s=>{
-        const c = s.geometry.coordinates;
-        if(!isNaN(c[0]) && !isNaN(c[1])){
-            L.circleMarker([c[1],c[0]],{
-                radius:5,
-                color:"blue",
-                fillOpacity:0.8
-            }).addTo(map);
-        }
+        L.polyline([
+            [schoolPoint.geometry.coordinates[1], schoolPoint.geometry.coordinates[0]],
+            [danger.coord[1], danger.coord[0]]
+        ], {color:"red", dashArray:"5,5"}).addTo(map);
     });
 });
+
+// ==============================
+// 5. LEGEND
+// ==============================
+var legend = L.control({position:"bottomright"});
+legend.onAdd = function () {
+    var div = L.DomUtil.create("div","legend");
+    div.innerHTML = `
+    <b>Legend</b><br>
+    🔵 Clinic Distance<br>
+    🔴 Danger Distance<br>
+    🟢 Natural Areas<br>
+    🟠 Built-up Areas
+    `;
+    return div;
+};
+legend.addTo(map);
 </script>
+
 </body>
 </html>
