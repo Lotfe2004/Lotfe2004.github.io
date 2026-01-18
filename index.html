@@ -1,20 +1,34 @@
 <!DOCTYPE html>
 <html lang="ar">
 <head>
-<meta charset="utf-8" />
-<title>تحليل توزيع المدارس – محافظة رام الله</title>
+<meta charset="utf-8">
+<title>Web GIS – تحليل توزيع المدارس في رام الله</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
 
 <style>
-body { margin:0; font-family:Arial }
-#map { height:100vh }
+body { margin:0; font-family: Arial }
+#map { height: 100vh }
+
 .header {
-  position:absolute; top:0; left:0; right:0;
-  background:#1f3c5b; color:white;
-  padding:10px; z-index:1000;
+  position:absolute;
+  top:0; left:0; right:0;
+  background:#1e3d59;
+  color:white;
+  padding:10px;
+  z-index:1000;
   text-align:center;
+}
+
+table {
+  width:100%;
+  border-collapse: collapse;
+}
+td {
+  border:1px solid #ccc;
+  padding:4px;
+  font-size:12px;
 }
 </style>
 </head>
@@ -33,8 +47,23 @@ body { margin:0; font-family:Arial }
 
 <script>
 // ================= MAP =================
-var map = L.map("map").setView([31.9,35.2],11);
+var map = L.map("map").setView([31.9, 35.2], 11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+
+// ================= POPUP BUILDER =================
+function buildPopup(properties){
+    let html = "<table>";
+    for (let key in properties){
+        html += `
+          <tr>
+            <td><b>${key}</b></td>
+            <td>${properties[key]}</td>
+          </tr>
+        `;
+    }
+    html += "</table>";
+    return html;
+}
 
 // ================= LOAD DATA =================
 Promise.all([
@@ -45,83 +74,103 @@ Promise.all([
  fetch("settlements.geojson").then(r=>r.json()),
  fetch("outposts.geojson").then(r=>r.json()),
  fetch("military.geojson").then(r=>r.json()),
- fetch("natural.json").then(r=>r.json()),
- fetch("clinics.geojson").then(r=>r.json()),
- fetch("hospitals.geojson").then(r=>r.json())
+ fetch("natural.json").then(r=>r.json())
 ]).then(init);
 
+// ================= INIT =================
 function init(data){
 
-let tgmooat=data[0], schools=data[1], built=data[2], roads=data[3];
-let settlements=data[4], outposts=data[5], military=data[6], natural=data[7];
-let clinics=data[8], hospitals=data[9];
+let tgmooat = data[0];
+let schools = data[1];
+let builtUp = data[2];
+let roads = data[3];
+let settlements = data[4];
+let outposts = data[5];
+let military = data[6];
+let natural = data[7];
 
-// ================= LAYERS =================
-L.geoJSON(built,{style:{color:"#999",fillOpacity:0.3}}).addTo(map);
+// ================= BASE LAYERS =================
+L.geoJSON(builtUp,{style:{color:"#999",fillOpacity:0.3}}).addTo(map);
 L.geoJSON(roads,{style:{color:"orange"}}).addTo(map);
 L.geoJSON(settlements,{style:{color:"red"}}).addTo(map);
 L.geoJSON(outposts,{style:{color:"darkred"}}).addTo(map);
 L.geoJSON(military,{style:{color:"black"}}).addTo(map);
 L.geoJSON(natural,{style:{color:"green"}}).addTo(map);
 
-let schoolsLayer = L.geoJSON(schools,{
- pointToLayer:(f,latlng)=>L.circleMarker(latlng,{radius:5,color:"blue"})
+// ================= SCHOOLS =================
+var schoolsLayer = L.geoJSON(schools,{
+ pointToLayer:(f,latlng)=>L.circleMarker(latlng,{
+   radius:5,
+   color:"blue",
+   fillOpacity:0.8
+ }),
+ onEachFeature:(f,l)=>{
+   l.bindPopup("<b>بيانات المدرسة</b><hr>" + buildPopup(f.properties));
+ }
 }).addTo(map);
 
 // ================= SEARCH =================
 L.Control.geocoder({
  defaultMarkGeocode:false
-}).on('markgeocode', function(e){
+}).on("markgeocode",function(e){
  map.fitBounds(e.geocode.bbox);
 }).addTo(map);
 
 // ================= MAIN ANALYSIS =================
 L.geoJSON(tgmooat,{
- style:{color:"black",fillOpacity:0.1},
- onEachFeature:function(f,l){
+ style:{color:"black",fillOpacity:0.15},
+ onEachFeature:function(feature, layer){
 
- let pop = f.properties["تقديرات_السكان_2020"];
- let needed = Math.ceil(pop / 3000);
+   let pop = feature.properties["تقديرات_السكان_2020"] || 0;
+   let needed = Math.ceil(pop / 3000);
 
- let insideSchools = schools.features.filter(s=>
-   turf.booleanPointInPolygon(s,f)
- ).length;
+   let insideSchools = schools.features.filter(s =>
+     turf.booleanPointInPolygon(s, feature)
+   ).length;
 
- let deficit = insideSchools < needed;
+   let deficit = insideSchools < needed;
 
- let html = `
- <b>التجمع:</b> ${f.properties["اسم_التجمع"]}<br>
- 👥 السكان: ${pop.toFixed(0)}<br>
- 🏫 المدارس: ${insideSchools}<br>
- 📊 المطلوب: ${needed}<br>
- ⚠️ الحالة: ${deficit?"يوجد نقص":"مكتفي"}
- `;
+   let analysisHTML = `
+     <hr>
+     <b>التحليل المكاني</b><br>
+     👥 السكان: ${pop}<br>
+     🏫 المدارس: ${insideSchools}<br>
+     📊 المطلوب: ${needed}<br>
+     ⚠️ الحالة: ${deficit ? "يوجد نقص" : "كافٍ"}
+   `;
 
- if(deficit){
-   let center = turf.centroid(f);
-   let price = 80;
+   if(deficit){
+     let center = turf.centroid(feature);
 
-   if(turf.booleanPointInPolygon(center,built)) price+=25;
-   price+=20; price+=15;
+     let price = 80;
+     if(turf.booleanPointInPolygon(center, builtUp)) price += 25;
+     price += 20;
 
-   L.marker([center.geometry.coordinates[1],center.geometry.coordinates[0]],{
-     icon:L.icon({
-       iconUrl:"https://cdn-icons-png.flaticon.com/512/167/167707.png",
-       iconSize:[30,30]
-     })
-   }).addTo(map).bindPopup(`
-     <b>📍 موقع مقترح لبناء مدرسة</b><br>
-     💰 سعر تقديري: ${price} $ / م²
-   `);
+     L.marker(
+       [center.geometry.coordinates[1], center.geometry.coordinates[0]],
+       {icon:L.icon({
+         iconUrl:"https://cdn-icons-png.flaticon.com/512/167/167707.png",
+         iconSize:[28,28]
+       })}
+     ).addTo(map)
+      .bindPopup(`
+        <b>📍 موقع مدرسة مقترح</b><br>
+        💰 سعر تقديري للأرض: ${price} $ / م²
+      `);
 
-   html+=`<br>🏗️ تم اقتراح موقع مدرسة`;
- }
+     analysisHTML += "<br>🏗️ تم اقتراح موقع مدرسة";
+   }
 
- l.bindPopup(html);
+   layer.bindPopup(
+     "<b>Attributes</b><hr>" +
+     buildPopup(feature.properties) +
+     analysisHTML
+   );
  }
 }).addTo(map);
 
 }
 </script>
+
 </body>
 </html>
