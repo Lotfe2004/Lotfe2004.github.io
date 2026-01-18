@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>Web GIS – تحليل الخدمات التعليمية (رام الله)</title>
+<title>تحليل التجمعات السكنية – الخدمات التعليمية</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
@@ -11,9 +11,12 @@
 body { margin:0; font-family:Arial }
 #map { height:100vh }
 .header {
-  position:absolute; top:0; left:0; right:0;
-  background:#1e3d59; color:white;
-  padding:10px; z-index:1000;
+  position:absolute;
+  top:0; left:0; right:0;
+  background:#1e3d59;
+  color:white;
+  padding:10px;
+  z-index:1000;
   text-align:center;
 }
 table { width:100%; border-collapse:collapse }
@@ -24,7 +27,7 @@ td { border:1px solid #ccc; padding:4px; font-size:12px }
 <body>
 
 <div class="header">
-<h3>تحليل توزيع المدارس واقتراح مواقع جديدة – محافظة رام الله</h3>
+<h3>تحليل احتياج المدارس حسب التجمعات السكنية</h3>
 </div>
 
 <div id="map"></div>
@@ -35,130 +38,115 @@ td { border:1px solid #ccc; padding:4px; font-size:12px }
 
 <script>
 // ================= MAP =================
-var map = L.map("map").setView([31.9, 35.2], 11);
+var map = L.map("map").setView([31.9,35.2],11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
 // ================= POPUP BUILDER =================
-function buildPopup(properties){
-  let html="<table>";
-  for(let k in properties){
-    html+=`<tr><td><b>${k}</b></td><td>${properties[k]}</td></tr>`;
+function buildPopup(obj){
+  let h="<table>";
+  for(let k in obj){
+    h+=`<tr><td><b>${k}</b></td><td>${obj[k]}</td></tr>`;
   }
-  html+="</table>";
-  return html;
+  h+="</table>";
+  return h;
 }
 
 // ================= LOAD DATA =================
 Promise.all([
  fetch("tgmooat.json").then(r=>r.json()),
  fetch("Ramallah_Schools.json").then(r=>r.json()),
- fetch("built_up.json").then(r=>r.json()),
- fetch("roads.json").then(r=>r.json()),
  fetch("settlements.geojson").then(r=>r.json()),
- fetch("outposts.geojson").then(r=>r.json()),
- fetch("military.geojson").then(r=>r.json()),
- fetch("wadis.geojson").then(r=>r.json()),
- fetch("Wells.geojson").then(r=>r.json()),
- fetch("clinics.geojson").then(r=>r.json()),
- fetch("hospitals.geojson").then(r=>r.json()),
- fetch("quarries.geojson").then(r=>r.json()),
- fetch("natural.json").then(r=>r.json())
+ fetch("built_up.json").then(r=>r.json()),
+ fetch("roads.json").then(r=>r.json())
 ]).then(init);
 
 // ================= INIT =================
 function init(data){
 
-let tgmooat=data[0], schools=data[1], built=data[2], roads=data[3];
-let settlements=data[4], outposts=data[5], military=data[6], wadis=data[7];
-let wells=data[8], clinics=data[9], hospitals=data[10];
-let quarries=data[11], natural=data[12];
+let tgmooat=data[0];
+let schools=data[1];
+let settlements=data[2];
+let built=data[3];
+let roads=data[4];
 
-let overlays={};
+// عرض المستوطنات (للتوضيح فقط)
+L.geoJSON(settlements,{style:{color:"red"}}).addTo(map);
 
-// ================= ADD LAYER FUNCTION =================
-function addLayer(geojson, options, name){
-  let layer=L.geoJSON(geojson,{
-    ...options,
-    onEachFeature:(f,l)=>{
-      l.bindPopup("<b>Attributes</b><hr>"+buildPopup(f.properties));
-    }
-  }).addTo(map);
-  overlays[name]=layer;
-  return layer;
-}
-
-// ================= BASE LAYERS =================
-addLayer(built,{style:{color:"#999",fillOpacity:0.3}},"المناطق المبنية");
-addLayer(roads,{style:{color:"orange"}},"الطرق");
-addLayer(settlements,{style:{color:"red"}},"المستوطنات");
-addLayer(outposts,{style:{color:"darkred"}},"البؤر");
-addLayer(military,{style:{color:"black"}},"مناطق عسكرية");
-addLayer(wadis,{style:{color:"blue"}},"الأودية");
-addLayer(quarries,{style:{color:"brown"}},"الكسارات");
-addLayer(natural,{style:{color:"green"}},"مناطق طبيعية");
-
-addLayer(wells,{pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:"cyan"})},"آبار");
-addLayer(clinics,{pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:"purple"})},"عيادات");
-addLayer(hospitals,{pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:6,color:"darkblue"})},"مستشفيات");
-
-// ================= SCHOOLS =================
-let schoolLayer = L.geoJSON(schools,{
- pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:6,color:"blue",fillOpacity:0.8}),
- onEachFeature:(f,l)=>l.bindPopup("<b>مدرسة</b><hr>"+buildPopup(f.properties))
+// ================= المدارس =================
+L.geoJSON(schools,{
+ pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:"blue",fillOpacity:0.8})
 }).addTo(map);
-overlays["المدارس"]=schoolLayer;
 
-// ================= SEARCH =================
+// ================= البحث =================
 L.Control.geocoder({defaultMarkGeocode:false})
 .on("markgeocode",e=>map.fitBounds(e.geocode.bbox))
 .addTo(map);
 
-// ================= MAIN ANALYSIS (Tgmooat) =================
-let tgLayer=L.geoJSON(tgmooat,{
+// ================= التجمعات + التحليل =================
+L.geoJSON(tgmooat,{
  style:{color:"black",fillOpacity:0.15},
- onEachFeature:(f,l)=>{
-   let pop=f.properties["تقديرات_السكان_2020"]||0;
-   let needed=Math.ceil(pop/3000);
-   let count=schools.features.filter(s=>turf.booleanPointInPolygon(s,f)).length;
-   let deficit=count<needed;
+ onEachFeature:(feature, layer)=>{
 
-   let analysis=`
-   <hr><b>التحليل</b><br>
-   👥 السكان: ${pop}<br>
-   🏫 المدارس: ${count}<br>
-   📊 المطلوب: ${needed}<br>
-   ⚠️ الحالة: ${deficit?"نقص":"كافٍ"}
+   let pop = feature.properties["تقديرات_السكان_2020"] || 0;
+   let needed = Math.ceil(pop / 3000);
+
+   let count = schools.features.filter(s =>
+     turf.booleanPointInPolygon(s, feature)
+   ).length;
+
+   let deficit = count < needed;
+
+   let analysis = `
+   <hr>
+   <b>تحليل الخدمات التعليمية</b><br>
+   👥 عدد السكان: ${pop}<br>
+   🏫 عدد المدارس: ${count}<br>
+   📊 المدارس المطلوبة: ${needed}<br>
+   ⚠️ الحالة: ${deficit ? "يوجد نقص" : "مكتفي"}
    `;
 
    if(deficit){
-     let c=turf.centroid(f);
-     let price=80;
+     let center = turf.centroid(feature);
 
-     if(turf.booleanPointInPolygon(c,built)) price+=25;
-     if(turf.distance(c,roads.features[0],{units:"kilometers"})<0.3) price+=20;
-     if(turf.distance(c,hospitals.features[0],{units:"kilometers"})<1) price+=15;
+     // شرط الابتعاد عن المستوطنات
+     let safe = true;
+     settlements.features.forEach(s=>{
+       if(turf.distance(center,s,{units:"kilometers"}) < 0.8){
+         safe = false;
+       }
+     });
 
-     L.marker([c.geometry.coordinates[1],c.geometry.coordinates[0]])
-      .addTo(map)
-      .bindPopup(`
-        <b>📍 موقع مدرسة مقترح</b><br>
-        💰 تثمين الأرض: ${price} $ / م²
-      `);
+     if(safe){
+       // تثمين الأرض
+       let price = 100;
+       if(turf.booleanPointInPolygon(center,built)) price += 30;
+       price += 20;
 
-     analysis+="<br>🏗️ تم اقتراح موقع";
+       L.marker(
+         [center.geometry.coordinates[1], center.geometry.coordinates[0]]
+       ).addTo(map)
+       .bindPopup(`
+         <b>📍 موقع مقترح لبناء مدرسة</b><br>
+         💰 تثمين الأرض: ${price} $ / م²
+       `);
+
+       analysis += `
+       <br>🏗️ تم اقتراح موقع بعيد عن المستوطنات
+       `;
+     } else {
+       analysis += `
+       <br>⚠️ لا يمكن اقتراح موقع بسبب قرب المستوطنات
+       `;
+     }
    }
 
-   l.bindPopup(
-     "<b>Attributes</b><hr>"+buildPopup(f.properties)+analysis
+   layer.bindPopup(
+     "<b>بيانات التجمع</b><hr>" +
+     buildPopup(feature.properties) +
+     analysis
    );
  }
 }).addTo(map);
-
-overlays["التجمعات السكنية"]=tgLayer;
-
-// ================= LAYER CONTROL =================
-L.control.layers(null,overlays).addTo(map);
-map.fitBounds(tgLayer.getBounds());
 
 }
 </script>
