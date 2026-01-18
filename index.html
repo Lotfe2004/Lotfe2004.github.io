@@ -1,97 +1,195 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>تحليل توزيع المدارس في رام الله</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+}
+
+#header {
+    background: #1e3d59;
+    color: white;
+    padding: 10px;
+    text-align: center;
+}
+
+#map {
+    height: 90vh;
+    width: 100%;
+}
+
+.info {
+    background: white;
+    padding: 8px;
+    font-size: 14px;
+}
+
+.legend {
+    background: white;
+    padding: 10px;
+    line-height: 18px;
+    color: #333;
+}
+.legend i {
+    width: 18px;
+    height: 18px;
+    float: left;
+    margin-right: 8px;
+    opacity: 0.8;
+}
+</style>
+</head>
+
+<body>
+
+<div id="header">
+    <h2>تحليل توزيع المدارس في محافظة رام الله</h2>
+    <p id="schoolCount">عدد المدارس: ...</p>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <script>
-// ============================
-// MAP
-// ============================
-var map = L.map("map").setView([31.9, 35.2], 13);
+// =====================
+// 1️⃣ إنشاء الخريطة
+// =====================
+var map = L.map('map').setView([31.9, 35.2], 11);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+}).addTo(map);
 
-// ============================
-// LOAD DATA
-// ============================
-Promise.all([
-    fetch("ramallah.json").then(r=>r.json()),
-    fetch("Ramallah_Schools.json").then(r=>r.json())
-]).then(([areas, schools]) => {
+// =====================
+// 2️⃣ تعريف الطبقات
+// =====================
+var ramallahLayer, schoolsLayer, builtUpLayer, roadsLayer, proposedLayer;
 
-    var schoolLayer = L.geoJSON(schools,{
-        pointToLayer:(f,latlng)=>
-            L.circleMarker(latlng,{
-                radius:6,
-                fillColor:"orange",
-                color:"#000",
-                weight:1,
-                fillOpacity:0.9
-            })
-    }).addTo(map);
-
-    // ============================
-    // ANALYSIS PER AREA
-    // ============================
-    L.geoJSON(areas,{
-        style: f => {
-            let count = countSchools(f, schools);
-
-            if(count === 0) return {color:"red", fillOpacity:0.5};
-            if(count === 1) return {color:"orange", fillOpacity:0.5};
-            return {color:"green", fillOpacity:0.4};
-        },
-
-        onEachFeature:(feature, layer)=>{
-            let count = countSchools(feature, schools);
-            let name = feature.properties.name || "منطقة غير معروفة";
-
-            let status =
-                count === 0 ? "❌ نقص حاد" :
-                count === 1 ? "⚠️ نقص متوسط" :
-                "✔️ مكتفية";
-
-            layer.on("click", ()=>{
-
-                let html = `
-                <b>المنطقة:</b> ${name}<br>
-                <b>عدد المدارس:</b> ${count}<br>
-                <b>الحالة:</b> ${status}
-                `;
-
-                // اقتراح موقع مدرسة
-                if(count <= 1){
-                    let center = turf.centerOfMass(feature);
-
-                    let price = 300 + Math.random()*200;
-
-                    L.marker([
-                        center.geometry.coordinates[1],
-                        center.geometry.coordinates[0]
-                    ]).addTo(map)
-                    .bindPopup(`
-                        <b>موقع مقترح لبناء مدرسة</b><br>
-                        داخل منطقة ${name}<br><br>
-                        <b>السعر التقديري:</b><br>
-                        ${price.toFixed(0)} دينار / م²
-                    `).openPopup();
-
-                    html += "<br><b>✔️ تم اقتراح موقع مدرسة جديدة</b>";
-                }
-
-                layer.bindPopup(html).openPopup();
-            });
+// =====================
+// 3️⃣ حدود رام الله
+// =====================
+fetch('ramallah.json')
+.then(r => r.json())
+.then(data => {
+    ramallahLayer = L.geoJSON(data, {
+        style: {
+            color: 'black',
+            weight: 2,
+            fillOpacity: 0
         }
     }).addTo(map);
-
-    map.fitBounds(L.geoJSON(areas).getBounds());
+    map.fitBounds(ramallahLayer.getBounds());
 });
 
-// ============================
-// COUNT SCHOOLS FUNCTION
-// ============================
-function countSchools(area, schools){
-    let count = 0;
-    schools.features.forEach(s=>{
-        if(turf.booleanPointInPolygon(s, area)){
-            count++;
+// =====================
+// 4️⃣ المدارس + الإحصاء
+// =====================
+fetch('Ramallah_Schools.json')
+.then(r => r.json())
+.then(data => {
+    schoolsLayer = L.geoJSON(data, {
+        pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+            radius: 6,
+            fillColor: "red",
+            color: "white",
+            weight: 1,
+            fillOpacity: 0.9
+        }),
+        onEachFeature: (f, l) => {
+            l.bindPopup("<b>مدرسة</b><br>" + (f.properties.name || ""));
+        }
+    }).addTo(map);
+
+    document.getElementById("schoolCount").innerText =
+        "عدد المدارس: " + data.features.length;
+});
+
+// =====================
+// 5️⃣ المناطق المبنية
+// =====================
+fetch('built_up.json')
+.then(r => r.json())
+.then(data => {
+    builtUpLayer = L.geoJSON(data, {
+        style: {
+            color: "orange",
+            weight: 1,
+            fillOpacity: 0.3
+        }
+    }).addTo(map);
+});
+
+// =====================
+// 6️⃣ الطرق (للاقتراح)
+// =====================
+fetch('roads.json')
+.then(r => r.json())
+.then(data => {
+    roadsLayer = L.geoJSON(data, {
+        style: {
+            color: "gray",
+            weight: 1
         }
     });
-    return count;
-}
+});
+
+// =====================
+// 7️⃣ مدارس مقترحة (مناطق نقص)
+// =====================
+// إذا لم يكن عندك ملف، يمكنك إنشاؤه في QGIS
+fetch('proposed_schools.geojson')
+.then(r => r.json())
+.then(data => {
+    proposedLayer = L.geoJSON(data, {
+        pointToLayer: (f, latlng) => L.circleMarker(latlng, {
+            radius: 7,
+            fillColor: "green",
+            color: "darkgreen",
+            weight: 1,
+            fillOpacity: 0.9
+        }),
+        onEachFeature: (f, l) => {
+            l.bindPopup("<b>موقع مدرسة مقترحة</b>");
+        }
+    }).addTo(map);
+});
+
+// =====================
+// 8️⃣ التحكم بالطبقات
+// =====================
+var overlays = {
+    "حدود رام الله": ramallahLayer,
+    "المدارس الحالية": schoolsLayer,
+    "المناطق المبنية": builtUpLayer,
+    "الطرق": roadsLayer,
+    "مدارس مقترحة": proposedLayer
+};
+
+L.control.layers(null, overlays).addTo(map);
+
+// =====================
+// 9️⃣ Legend
+// =====================
+var legend = L.control({position: 'bottomright'});
+legend.onAdd = function () {
+    var div = L.DomUtil.create('div', 'legend');
+    div.innerHTML += "<b>Legend</b><br>";
+    div.innerHTML += '<i style="background:red"></i> المدارس<br>';
+    div.innerHTML += '<i style="background:orange"></i> مناطق مبنية<br>';
+    div.innerHTML += '<i style="background:green"></i> مدارس مقترحة<br>';
+    return div;
+};
+legend.addTo(map);
+
 </script>
+
+</body>
+</html>
