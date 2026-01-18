@@ -2,130 +2,151 @@
 <html lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>نظام تحليل توزيع المدارس – رام الله</title>
+<title>نظام تحليل الخدمات التعليمية – رام الله</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
 <style>
-body { margin:0; font-family: Arial }
-#map { height: 90vh; }
+body { margin:0; font-family:Arial }
+#map { height: 90vh }
 #header {
   background:#1e3d59; color:white; padding:10px; text-align:center
 }
-.info {
-  background:white; padding:10px; font-size:14px
-}
-.search {
-  padding:6px; width:200px
-}
+#search { width:250px; padding:6px }
 </style>
 </head>
 
 <body>
 
 <div id="header">
-  <h2>تحليل توزيع المدارس في محافظة رام الله</h2>
-  <input id="searchBox" class="search" placeholder="ابحث عن تجمع سكني...">
+  <h2>تحليل توزيع المدارس واقتراح مواقع جديدة – محافظة رام الله</h2>
+  <input id="search" placeholder="🔍 ابحث عن تجمع سكني">
 </div>
 
 <div id="map"></div>
 
 <script>
+// ================== Map ==================
 var map = L.map('map').setView([31.9,35.2],11);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-// ================= Layers =================
-var schoolsData, settlementsData, builtUpData;
-var schoolLayer, settlementLayer, proposedLayer;
+// ================== Global Data ==================
+var schools, settlements, builtUp, roads, settlementsIL, military, wadis;
+var proposedLayer;
 
-// ================= Load Schools =================
-fetch('Ramallah_Schools.json')
-.then(r=>r.json())
-.then(data=>{
-  schoolsData = data;
-  schoolLayer = L.geoJSON(data,{
-    pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:'red',fillOpacity:0.8})
-  }).addTo(map);
+// ================== Load Data ==================
+Promise.all([
+  fetch('Ramallah_Schools.json').then(r=>r.json()),
+  fetch('settlements.geojson').then(r=>r.json()),
+  fetch('built_up.json').then(r=>r.json()),
+  fetch('roads.json').then(r=>r.json()),
+  fetch('settlementsIL.geojson').then(r=>r.json()),
+  fetch('military.geojson').then(r=>r.json()),
+  fetch('wadis.geojson').then(r=>r.json())
+]).then(data=>{
+  schools=data[0];
+  settlements=data[1];
+  builtUp=data[2];
+  roads=data[3];
+  settlementsIL=data[4];
+  military=data[5];
+  wadis=data[6];
+  drawMap();
 });
 
-// ================= Load Built-up =================
-fetch('built_up.json')
-.then(r=>r.json())
-.then(data=> builtUpData = data);
+// ================== Draw ==================
+function drawMap(){
 
-// ================= Load Settlements =================
-fetch('settlements.geojson')
-.then(r=>r.json())
-.then(data=>{
-  settlementsData = data;
+  // Schools
+  var schoolLayer = L.geoJSON(schools,{
+    pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:'red',fillOpacity:0.8})
+  }).addTo(map);
 
-  settlementLayer = L.geoJSON(data,{
+  // Settlements
+  var settlementLayer = L.geoJSON(settlements,{
     style:{color:'blue',fillOpacity:0.1},
-    onEachFeature:(feature,layer)=>{
-
-      layer.on('click', ()=> analyzeSettlement(feature,layer));
+    onEachFeature:(f,l)=>{
+      l.on('click',()=>analyze(f,l));
     }
   }).addTo(map);
 
   map.fitBounds(settlementLayer.getBounds());
-});
 
-// ================= Core Analysis =================
-function analyzeSettlement(feature, layer){
+  // Layers control
+  L.control.layers(null,{
+    "المدارس":schoolLayer,
+    "التجمعات السكنية":settlementLayer
+  }).addTo(map);
 
-  var population = feature.properties.population || 0;
-
-  // Count schools inside settlement
-  var count = 0;
-  schoolsData.features.forEach(s=>{
-    if(turf.booleanPointInPolygon(s, feature)) count++;
+  // Search
+  document.getElementById("search").addEventListener("keyup",e=>{
+    let v=e.target.value.toLowerCase();
+    settlementLayer.eachLayer(l=>{
+      if(l.feature.properties.name.toLowerCase().includes(v)){
+        map.fitBounds(l.getBounds());
+        l.fire('click');
+      }
+    });
   });
-
-  // معيار النقص (مثال)
-  var needed = Math.ceil(population / 3000);
-  var status = count < needed ? "❌ يوجد نقص" : "✅ كافٍ";
-
-  // اقتراح موقع مدرسة
-  var proposedPoint = null;
-  if(count < needed && builtUpData){
-    proposedPoint = turf.centroid(feature);
-    if(proposedLayer) map.removeLayer(proposedLayer);
-    proposedLayer = L.geoJSON(proposedPoint,{
-      pointToLayer:(f,ll)=>L.marker(ll)
-        .bindPopup("📍 موقع مقترح لبناء مدرسة")
-    }).addTo(map);
-  }
-
-  layer.bindPopup(`
-    <b>${feature.properties.name}</b><br>
-    👥 عدد السكان: ${population}<br>
-    🏫 عدد المدارس: ${count}<br>
-    📊 الاحتياج: ${needed}<br>
-    ⚠️ الحالة: ${status}
-  `).openPopup();
 }
 
-// ================= Search =================
-document.getElementById("searchBox").addEventListener("keyup", function(e){
-  var value = e.target.value.toLowerCase();
-  settlementLayer.eachLayer(l=>{
-    var name = l.feature.properties.name.toLowerCase();
-    if(name.includes(value)){
-      map.fitBounds(l.getBounds());
-      l.fire('click');
-    }
+// ================== Analysis ==================
+function analyze(feature, layer){
+
+  // Count schools
+  let count=0;
+  schools.features.forEach(s=>{
+    if(turf.booleanPointInPolygon(s,feature)) count++;
   });
-});
 
-// ================= Controls =================
-L.control.layers(null,{
-  "المدارس":schoolLayer,
-  "التجمعات السكنية":settlementLayer,
-  "موقع مدرسة مقترح":proposedLayer
-}).addTo(map);
+  let population = feature.properties.population || 0;
+  let needed = Math.ceil(population / 3000);
+  let deficit = needed - count;
 
+  let status = deficit>0 ? "❌ يوجد نقص" : "✅ كافٍ";
+
+  let popup = `
+  <b>${feature.properties.name}</b><br>
+  👥 السكان: ${population}<br>
+  🏫 المدارس: ${count}<br>
+  📊 الاحتياج: ${needed}<br>
+  ⚠️ الحالة: ${status}
+  `;
+
+  // If deficit → propose land
+  if(deficit>0){
+    let centroid = turf.centroid(feature);
+
+    // Avoid constraints
+    if(
+      !turf.booleanIntersects(centroid, settlementsIL) &&
+      !turf.booleanIntersects(centroid, military) &&
+      !turf.booleanIntersects(centroid, wadis)
+    ){
+      if(proposedLayer) map.removeLayer(proposedLayer);
+
+      // Land price estimation
+      let price = 500;
+      if(turf.booleanIntersects(centroid,builtUp)) price+=300;
+      if(turf.distance(centroid,roads,{units:'kilometers'})<0.5) price+=200;
+
+      proposedLayer = L.geoJSON(centroid,{
+        pointToLayer:(f,ll)=>L.marker(ll)
+      }).addTo(map);
+
+      popup+=`
+      <hr>
+      🏗️ موقع مقترح لبناء مدرسة<br>
+      💰 سعر تقديري للأرض: ${price}$ / م²
+      `;
+    }
+  }
+
+  layer.bindPopup(popup).openPopup();
+}
 </script>
+
 </body>
 </html>
