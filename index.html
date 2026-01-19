@@ -35,28 +35,27 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 // متغيرات عامة
 var tgLayer;
 var schoolsData;
-var proposedSites = [];
 
 // =======================
 // 3️⃣ تحميل التجمعات السكنية
 // =======================
 fetch("tgmooat.json")
-  .then(response => response.json())
-  .then(function(tgData){
+.then(res => res.json())
+.then(tgData => {
 
-    tgLayer = L.geoJSON(tgData, {
-      style: {
-        color: "black",
-        weight: 1,
-        fillColor: "#cccccc",
-        fillOpacity: 0.4
-      }
-    }).addTo(map);
+  tgLayer = L.geoJSON(tgData, {
+    style: {
+      color: "#333",
+      weight: 1,
+      fillColor: "#dddddd",
+      fillOpacity: 0.4
+    }
+  }).addTo(map);
 
-    map.fitBounds(tgLayer.getBounds());
+  map.fitBounds(tgLayer.getBounds());
 
-    loadSchools();
-  });
+  loadSchools();
+});
 
 // =======================
 // 4️⃣ تحميل المدارس + التحليل
@@ -64,85 +63,109 @@ fetch("tgmooat.json")
 function loadSchools(){
 
 fetch("Ramallah_Schools.json")
-  .then(response => response.json())
-  .then(function(sData){
+.then(res => res.json())
+.then(sData => {
 
-    schoolsData = sData;
+  schoolsData = sData;
 
-    // عرض المدارس
-    L.geoJSON(schoolsData, {
-      pointToLayer: function(feature, latlng){
-        return L.circleMarker(latlng, {
-          radius: 5,
-          color: "blue",
-          fillOpacity: 0.8
-        });
-      }
-    }).addTo(map);
-
-    // =======================
-    // 5️⃣ التحليل + اقتراح موقع
-    // =======================
-    tgLayer.eachLayer(function(layer){
-
-      var count = 0;
-
-      schoolsData.features.forEach(function(school){
-        if (turf.booleanPointInPolygon(school, layer.feature)) {
-          count++;
-        }
-      });
-
-      var name = layer.feature.properties["اسم_التجمع"] || "غير معروف";
-      var pop  = layer.feature.properties["تقديرات_السكان_2020"] || 0;
-
-      var needed = Math.ceil(pop / 3000);
-      var deficit = needed - count;
-
-      var status = "مكتفي";
-      var color = "green";
-
-      if (deficit > 0) {
-        status = "يوجد نقص مدارس";
-        color = "red";
-
-        // اقتراح موقع واحد فقط لكل تجمع
-        if (!layer._siteProposed) {
-
-          var center = turf.centroid(layer.feature);
-
-          var marker = L.marker([
-            center.geometry.coordinates[1],
-            center.geometry.coordinates[0]
-          ])
-          .addTo(map)
-          .bindPopup(
-            "<b>📍 موقع مقترح لبناء مدرسة</b><br>" +
-            "<b>التجمع:</b> " + name
-          );
-
-          proposedSites.push(marker);
-          layer._siteProposed = true;
-        }
-      }
-
-      // تلوين التجمع
-      layer.setStyle({
-        fillColor: color,
-        fillOpacity: 0.6
-      });
-
-      // Popup التجمع
-      layer.bindPopup(
-        "<b>اسم التجمع:</b> " + name + "<br>" +
-        "<b>عدد السكان:</b> " + pop + "<br>" +
-        "<b>عدد المدارس:</b> " + count + "<br>" +
-        "<b>المدارس المطلوبة:</b> " + needed + "<br>" +
-        "<b>الحالة:</b> " + status
+  // عرض المدارس
+  L.geoJSON(schoolsData, {
+    pointToLayer: function(feature, latlng){
+      return L.circleMarker(latlng, {
+        radius: 5,
+        color: "blue",
+        fillColor: "blue",
+        fillOpacity: 0.9
+      }).bindPopup(
+        "<b>مدرسة</b><br>" +
+        (feature.properties.name || "بدون اسم")
       );
+    }
+  }).addTo(map);
+
+  // =======================
+  // 5️⃣ التحليل لكل تجمع
+  // =======================
+  tgLayer.eachLayer(layer => {
+
+    var schoolsCount = 0;
+
+    schoolsData.features.forEach(school => {
+      if (turf.booleanPointInPolygon(school, layer.feature)) {
+        schoolsCount++;
+      }
     });
 
+    // قراءة الاسم والسكان بذكاء
+    var p = layer.feature.properties || {};
+
+    var name =
+      p["اسم_التجمع"] ||
+      p["name"] ||
+      p["NAME"] ||
+      "غير معروف";
+
+    var population =
+      p["تقديرات_السكان_2020"] ||
+      p["population"] ||
+      0;
+
+    // معيار: مدرسة لكل 3000 نسمة
+    var neededSchools = Math.ceil(population / 3000);
+    var deficit = neededSchools - schoolsCount;
+
+    var status = "مكتفي";
+    var color = "#2ecc71";
+
+    // =======================
+    // 6️⃣ في حال وجود نقص
+    // =======================
+    var price = "-";
+
+    if (deficit > 0) {
+      status = "يوجد نقص مدارس";
+      color = "#e74c3c";
+
+      // اقتراح موقع = مركز التجمع
+      var center = turf.centroid(layer.feature);
+
+      // تثمين تقريبي (عرض نهائي)
+      var landArea = 5000; // م²
+      var pricePerMeter = 120; // دولار
+      price = landArea * pricePerMeter + " $";
+
+      L.marker([
+        center.geometry.coordinates[1],
+        center.geometry.coordinates[0]
+      ])
+      .addTo(map)
+      .bindPopup(
+        "<b>📍 موقع مقترح لبناء مدرسة</b><hr>" +
+        "<b>التجمع:</b> " + name + "<br>" +
+        "<b>المساحة:</b> " + landArea + " م²<br>" +
+        "<b>سعر تقريبي:</b> " + price
+      );
+    }
+
+    // تلوين التجمع
+    layer.setStyle({
+      fillColor: color,
+      fillOpacity: 0.6
+    });
+
+    // Popup التجمع
+    layer.bindPopup(
+      "<b>تجمع سكني</b><hr>" +
+      "<b>الاسم:</b> " + name + "<br>" +
+      "<b>عدد السكان:</b> " + population + "<br>" +
+      "<b>عدد المدارس:</b> " + schoolsCount + "<br>" +
+      "<b>المطلوب:</b> " + neededSchools + "<br>" +
+      "<b>الحالة:</b> " + status
+    );
+
   });
+
+});
 }
 </script>
 
