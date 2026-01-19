@@ -20,7 +20,7 @@ body { margin:0; font-family:Arial }
 
 <script>
 // =======================
-// 1️⃣ إنشاء الخريطة
+// 1️⃣ الخريطة
 // =======================
 var map = L.map("map").setView([31.9, 35.2], 11);
 
@@ -29,169 +29,164 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 // =======================
-// 2️⃣ Layer Groups
+// 2️⃣ Layers
 // =======================
-var settlementsLayer;   // التجمعات
-var schoolsLayer;       // المدارس
-var coloniesLayer;      // المستوطنات
-var proposedLayer = L.layerGroup(); // مواقع مقترحة
+var settlementsLayer, schoolsLayer, coloniesLayer;
+var proposedLayer = L.layerGroup();
+
+var roadsLayer, hospitalsLayer, clinicsLayer, wellsLayer;
+var wadisLayer, naturalLayer, militaryLayer, outpostsLayer, quarriesLayer;
 
 // =======================
-// 3️⃣ تحميل التجمعات السكنية
+// 3️⃣ التجمعات
 // =======================
 fetch("tgmooat.json")
-.then(res => res.json())
-.then(tgData => {
+.then(r => r.json())
+.then(data => {
 
-  settlementsLayer = L.geoJSON(tgData, {
+  settlementsLayer = L.geoJSON(data, {
     style: {
       color: "#333",
       weight: 1,
-      fillColor: "#dddddd",
+      fillColor: "#ddd",
       fillOpacity: 0.4
     }
   }).addTo(map);
 
   map.fitBounds(settlementsLayer.getBounds());
-
   loadSchools();
 });
 
 // =======================
-// 4️⃣ تحميل المدارس + التحليل
+// 4️⃣ المدارس + التحليل
 // =======================
 function loadSchools(){
-
 fetch("Ramallah_Schools.json")
-.then(res => res.json())
-.then(schoolsData => {
+.then(r => r.json())
+.then(data => {
 
-  schoolsLayer = L.geoJSON(schoolsData, {
-    pointToLayer: function(feature, latlng){
-      return L.circleMarker(latlng, {
+  schoolsLayer = L.geoJSON(data, {
+    pointToLayer: (f, latlng) =>
+      L.circleMarker(latlng, {
         radius: 5,
         color: "blue",
-        fillColor: "blue",
         fillOpacity: 0.9
-      }).bindPopup("<b>مدرسة</b>");
-    }
+      }).bindPopup("<b>مدرسة</b>")
   }).addTo(map);
 
-  analyzeSettlements(schoolsData);
+  analyze(data);
 });
 }
 
-// =======================
-// 5️⃣ التحليل لكل تجمع
-// =======================
-function analyzeSettlements(schoolsData){
+function analyze(schoolsData){
 
 settlementsLayer.eachLayer(layer => {
 
-  var schoolsCount = 0;
+  let count = 0;
+  schoolsData.features.forEach(s =>
+    turf.booleanPointInPolygon(s, layer.feature) && count++
+  );
 
-  schoolsData.features.forEach(school => {
-    if (turf.booleanPointInPolygon(school, layer.feature)) {
-      schoolsCount++;
-    }
-  });
+  let p = layer.feature.properties || {};
+  let name = p["اسم_التجمع"] || p["NAME"] || "غير معروف";
+  let pop = p["تقديرات_السكان_2020"] || p["population"] || 0;
 
-  var p = layer.feature.properties || {};
+  let needed = Math.ceil(pop / 3000);
+  let deficit = needed - count;
 
-  var name =
-    p["اسم_التجمع"] ||
-    p["name"] ||
-    p["NAME"] ||
-    "غير معروف";
+  let color = deficit > 0 ? "#e74c3c" : "#2ecc71";
 
-  var population =
-    p["تقديرات_السكان_2020"] ||
-    p["population"] ||
-    0;
-
-  var neededSchools = Math.ceil(population / 3000);
-  var deficit = neededSchools - schoolsCount;
-
-  var status = "مكتفي";
-  var color = "#2ecc71";
-
-  if (deficit > 0) {
-    status = "يوجد نقص مدارس";
-    color = "#e74c3c";
-
-    var center = turf.centroid(layer.feature);
-
-    var landArea = 5000;
-    var pricePerMeter = 120;
-    var price = landArea * pricePerMeter + " $";
-
-    L.marker([
-      center.geometry.coordinates[1],
-      center.geometry.coordinates[0]
-    ])
+  if (deficit > 0){
+    let c = turf.centroid(layer.feature);
+    L.marker([c.geometry.coordinates[1], c.geometry.coordinates[0]])
     .bindPopup(
-      "<b>📍 موقع مقترح لبناء مدرسة</b><hr>" +
-      "<b>التجمع:</b> " + name + "<br>" +
-      "<b>المساحة:</b> " + landArea + " م²<br>" +
-      "<b>سعر تقريبي:</b> " + price
-    )
-    .addTo(proposedLayer);
+      "<b>📍 موقع مقترح</b><br>" +
+      "التجمع: " + name + "<br>" +
+      "سعر تقريبي: 600000 $"
+    ).addTo(proposedLayer);
   }
 
-  layer.setStyle({
-    fillColor: color,
-    fillOpacity: 0.6
-  });
+  layer.setStyle({ fillColor: color, fillOpacity: 0.6 });
 
   layer.bindPopup(
     "<b>تجمع سكني</b><hr>" +
-    "<b>الاسم:</b> " + name + "<br>" +
-    "<b>عدد السكان:</b> " + population + "<br>" +
-    "<b>عدد المدارس:</b> " + schoolsCount + "<br>" +
-    "<b>المطلوب:</b> " + neededSchools + "<br>" +
-    "<b>الحالة:</b> " + status
+    "الاسم: " + name + "<br>" +
+    "السكان: " + pop + "<br>" +
+    "المدارس: " + count + "<br>" +
+    "المطلوب: " + needed
   );
-
 });
 
 proposedLayer.addTo(map);
-loadColonies();
+loadOtherLayers();
 }
 
 // =======================
-// 6️⃣ تحميل المستوطنات (عرض فقط)
+// 5️⃣ باقي الليرات (عرض فقط)
 // =======================
-function loadColonies(){
+function loadOtherLayers(){
 
+simpleLayer("roads.json", {color:"#555"}, "طرق", l => roadsLayer = l);
+simpleLayer("hospitals.geojson", {color:"red"}, "مستشفى", l => hospitalsLayer = l);
+simpleLayer("clinics.geojson", {color:"orange"}, "عيادة", l => clinicsLayer = l);
+simpleLayer("Wells.geojson", {color:"blue"}, "بئر", l => wellsLayer = l);
+simpleLayer("wadis.geojson", {color:"#00bcd4"}, "وادي", l => wadisLayer = l);
+simpleLayer("natural.json", {color:"green"}, "منطقة طبيعية", l => naturalLayer = l);
+simpleLayer("military.geojson", {color:"black"}, "منطقة عسكرية", l => militaryLayer = l);
+simpleLayer("outposts.geojson", {color:"#9c27b0"}, "بؤرة", l => outpostsLayer = l);
+simpleLayer("quarries.geojson", {color:"#795548"}, "كسارة", l => quarriesLayer = l);
+
+// المستوطنات
 fetch("settlements.geojson")
-.then(res => res.json())
-.then(data => {
-
-  coloniesLayer = L.geoJSON(data, {
-    style: {
-      color: "red",
-      weight: 2,
-      fillColor: "red",
-      fillOpacity: 0.3
-    },
-    onEachFeature: function(feature, layer){
-      layer.bindPopup("<b>مستوطنة</b>");
-    }
+.then(r=>r.json())
+.then(d=>{
+  coloniesLayer = L.geoJSON(d,{
+    style:{color:"red",weight:2,fillOpacity:0.3},
+    onEachFeature:(f,l)=>l.bindPopup("<b>مستوطنة</b>")
   }).addTo(map);
 
-  // =======================
-  // 7️⃣ Layer Control
-  // =======================
-  L.control.layers(null, {
-    "التجمعات السكنية": settlementsLayer,
-    "المدارس": schoolsLayer,
-    "المستوطنات": coloniesLayer,
-    "مواقع مقترحة لمدارس": proposedLayer
-  }).addTo(map);
+  layerControl();
 });
+}
+
+// =======================
+// 6️⃣ دالة عامة آمنة
+// =======================
+function simpleLayer(file, style, label, callback){
+fetch(file)
+.then(r=>r.json())
+.then(d=>{
+  let l = L.geoJSON(d,{
+    style: style,
+    onEachFeature:(f,ly)=>ly.bindPopup("<b>"+label+"</b>")
+  }).addTo(map);
+  callback(l);
+});
+}
+
+// =======================
+// 7️⃣ Layer Control
+// =======================
+function layerControl(){
+L.control.layers(null,{
+  "التجمعات": settlementsLayer,
+  "المدارس": schoolsLayer,
+  "المستوطنات": coloniesLayer,
+  "مواقع مقترحة": proposedLayer,
+  "الطرق": roadsLayer,
+  "مستشفيات": hospitalsLayer,
+  "عيادات": clinicsLayer,
+  "آبار": wellsLayer,
+  "أودية": wadisLayer,
+  "مناطق طبيعية": naturalLayer,
+  "مناطق عسكرية": militaryLayer,
+  "بؤر": outpostsLayer,
+  "كسارات": quarriesLayer
+}).addTo(map);
 }
 </script>
 
 </body>
 </html>
+
 
