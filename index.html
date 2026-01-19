@@ -2,13 +2,18 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>Web GIS – Ramallah</title>
+<title>Web GIS – Ramallah Schools Analysis</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 
 <style>
-body { margin:0; font-family:Arial }
-#map { height:100vh }
+body { margin:0; font-family: Arial; }
+#map { height: 100vh; }
+
+.popup-title {
+  font-weight: bold;
+  color: #0a3d62;
+}
 </style>
 </head>
 
@@ -16,157 +21,159 @@ body { margin:0; font-family:Arial }
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
 <script>
-// =====================
-// الخريطة
-// =====================
-var map = L.map("map").setView([31.9,35.2],11);
+// =======================
+// إنشاء الخريطة
+// =======================
+var map = L.map("map").setView([31.9, 35.2], 11);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-  attribution:"© OpenStreetMap"
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap"
 }).addTo(map);
 
-// =====================
-// متغيرات
-// =====================
-var tgLayer, schoolsData;
+// =======================
+// Layer Groups (الترتيب مهم)
+// =======================
+var tgmooatLayer = L.layerGroup().addTo(map);   // تحت
+var schoolsLayer = L.layerGroup().addTo(map);
+var hospitalsLayer = L.layerGroup().addTo(map);
+var settlementsLayer = L.layerGroup().addTo(map);
 
-// =====================
-// 1️⃣ التجمعات (تحت الجميع)
-// =====================
-fetch("tgmooat.json")
-.then(r=>r.json())
-.then(data=>{
+// =======================
+// تحميل المدارس
+// =======================
+var schoolsData = [];
 
-  tgLayer = L.geoJSON(data,{
-    style:{
-      color:"#000",
-      weight:1,
-      fillColor:"#ddd",
-      fillOpacity:0.5
-    }
-  }).addTo(map);
-
-  map.fitBounds(tgLayer.getBounds());
-
-  loadSchools();
-  loadHospitals();
-  loadRoads();
-  loadWadis();
-});
-
-// =====================
-// 2️⃣ المدارس (فوق التجمعات)
-// =====================
-function loadSchools(){
 fetch("schools.json")
-.then(r=>r.json())
-.then(data=>{
-  schoolsData = data;
+.then(res => res.json())
+.then(data => {
+  schoolsData = data.features;
 
-  L.geoJSON(data,{
-    pointToLayer:(f,latlng)=>
-      L.circleMarker(latlng,{
-        radius:5,
-        color:"blue",
-        fillOpacity:0.9
-      }),
-    onEachFeature:(f,l)=>{
-      l.bindPopup(
-        "<b>🏫 مدرسة</b><br>"+
-        (f.properties.NAME || "")
+  L.geoJSON(data, {
+    pointToLayer: function (f, latlng) {
+      return L.circleMarker(latlng, {
+        radius: 5,
+        color: "blue",
+        fillColor: "blue",
+        fillOpacity: 0.8
+      });
+    },
+    onEachFeature: function (f, layer) {
+      layer.bindPopup(
+        "<div class='popup-title'>مدرسة</div>" +
+        "الاسم: " + (f.properties.name || "غير معروف")
       );
     }
-  }).addTo(map);
-
-  analyzeTgmooat();
+  }).addTo(schoolsLayer);
 });
-}
 
-// =====================
-// 3️⃣ المستشفيات
-// =====================
-function loadHospitals(){
-fetch("hospitals.json")
-.then(r=>r.json())
-.then(data=>{
-  L.geoJSON(data,{
-    pointToLayer:(f,latlng)=>
-      L.marker(latlng),
-    onEachFeature:(f,l)=>{
-      l.bindPopup(
-        "<b>🏥 مستشفى</b><br>"+
-        (f.properties.NAME || "غير معروف")
+// =======================
+// تحميل التجمعات السكنية
+// =======================
+fetch("tgmooat.json")
+.then(res => res.json())
+.then(data => {
+
+  function countSchools(polygon) {
+    let count = 0;
+    schoolsData.forEach(s => {
+      var pt = L.latLng(
+        s.geometry.coordinates[1],
+        s.geometry.coordinates[0]
+      );
+      if (L.polygon(polygon).getBounds().contains(pt)) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  function styleTgmooat(feature) {
+    let pop = feature.properties.population || 0;
+    let schools = countSchools(feature.geometry.coordinates[0]);
+    let needed = Math.ceil(pop / 5000);
+    let shortage = needed - schools;
+
+    return {
+      color: "#000",
+      weight: 1,
+      fillColor: shortage > 0 ? "#e74c3c" : "#2ecc71",
+      fillOpacity: 0.6
+    };
+  }
+
+  L.geoJSON(data, {
+    style: styleTgmooat,
+    onEachFeature: function (feature, layer) {
+
+      let pop = feature.properties.population || 0;
+      let schools = countSchools(feature.geometry.coordinates[0]);
+      let needed = Math.ceil(pop / 5000);
+      let shortage = needed - schools;
+
+      let status = shortage > 0 ? "❌ يوجد نقص مدارس" : "✅ كافٍ";
+
+      layer.bindPopup(
+        "<div class='popup-title'>تجمع سكني</div>" +
+        "الاسم: " + (feature.properties.name || "غير معروف") + "<br>" +
+        "عدد السكان: " + pop + "<br>" +
+        "عدد المدارس: " + schools + "<br>" +
+        "الحالة: " + status
       );
     }
-  }).addTo(map);
+  }).addTo(tgmooatLayer);
 });
-}
 
-// =====================
-// 4️⃣ الطرق
-// =====================
-function loadRoads(){
-fetch("roads.json")
-.then(r=>r.json())
-.then(data=>{
-  L.geoJSON(data,{
-    style:{color:"#555",weight:2},
-    onEachFeature:(f,l)=>{
-      l.bindPopup(
-        "<b>🛣 طريق</b><br>"+
-        (f.properties.TYPE || "")
+// =======================
+// تحميل المستشفيات
+// =======================
+fetch("hospitals.geojson")
+.then(res => res.json())
+.then(data => {
+  L.geoJSON(data, {
+    pointToLayer: function (f, latlng) {
+      return L.marker(latlng);
+    },
+    onEachFeature: function (f, layer) {
+      layer.bindPopup(
+        "<div class='popup-title'>مستشفى</div>" +
+        (f.properties.name || "")
       );
     }
-  }).addTo(map);
+  }).addTo(hospitalsLayer);
 });
-}
 
-// =====================
-// 5️⃣ الوديان
-// =====================
-function loadWadis(){
-fetch("wadis.json")
-.then(r=>r.json())
-.then(data=>{
-  L.geoJSON(data,{
-    style:{color:"cyan",weight:2,dashArray:"4,4"},
-    onEachFeature:(f,l)=>{
-      l.bindPopup(
-        "<b>🌊 وادي</b><br>"+
-        (f.properties.NAME || "")
+// =======================
+// تحميل المستوطنات
+// =======================
+fetch("settlements.geojson")
+.then(res => res.json())
+.then(data => {
+  L.geoJSON(data, {
+    style: {
+      color: "red",
+      fillOpacity: 0.4
+    },
+    onEachFeature: function (f, layer) {
+      layer.bindPopup(
+        "<div class='popup-title'>مستوطنة</div>" +
+        (f.properties.name || "")
       );
     }
-  }).addTo(map);
+  }).addTo(settlementsLayer);
 });
-}
 
-// =====================
-// 6️⃣ تحليل التجمعات + Popup
-// =====================
-function analyzeTgmooat(){
+// =======================
+// التحكم بالطبقات
+// =======================
+L.control.layers(null, {
+  "التجمعات السكنية": tgmooatLayer,
+  "المدارس": schoolsLayer,
+  "المستشفيات": hospitalsLayer,
+  "المستوطنات": settlementsLayer
+}).addTo(map);
 
-tgLayer.eachLayer(function(layer){
-
-  let count = 0;
-  schoolsData.features.forEach(s=>{
-    if(turf.booleanPointInPolygon(s,layer.feature)){
-      count++;
-    }
-  });
-
-  let name = layer.feature.properties["اسم_التجمع"] || "غير معروف";
-  let pop  = layer.feature.properties["تقديرات_السكان_2020"] || 0;
-
-  layer.bindPopup(
-    "<b>🏘 التجمع:</b> "+name+"<br>"+
-    "<b>👥 عدد السكان:</b> "+pop+"<br>"+
-    "<b>🏫 عدد المدارس:</b> "+count
-  );
-});
-}
 </script>
 </body>
 </html>
