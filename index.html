@@ -13,7 +13,6 @@ body { margin:0; font-family:Arial }
 </head>
 
 <body>
-
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -25,16 +24,17 @@ body { margin:0; font-family:Arial }
 // =======================
 var map = L.map("map").setView([31.9, 35.2], 11);
 
-// =======================
-// 2️⃣ خريطة الأساس
-// =======================
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap"
 }).addTo(map);
 
-// متغيرات عامة
-var tgLayer;
-var schoolsData;
+// =======================
+// 2️⃣ Layer Groups
+// =======================
+var settlementsLayer;   // التجمعات
+var schoolsLayer;       // المدارس
+var coloniesLayer;      // المستوطنات
+var proposedLayer = L.layerGroup(); // مواقع مقترحة
 
 // =======================
 // 3️⃣ تحميل التجمعات السكنية
@@ -43,7 +43,7 @@ fetch("tgmooat.json")
 .then(res => res.json())
 .then(tgData => {
 
-  tgLayer = L.geoJSON(tgData, {
+  settlementsLayer = L.geoJSON(tgData, {
     style: {
       color: "#333",
       weight: 1,
@@ -52,7 +52,7 @@ fetch("tgmooat.json")
     }
   }).addTo(map);
 
-  map.fitBounds(tgLayer.getBounds());
+  map.fitBounds(settlementsLayer.getBounds());
 
   loadSchools();
 });
@@ -64,107 +64,110 @@ function loadSchools(){
 
 fetch("Ramallah_Schools.json")
 .then(res => res.json())
-.then(sData => {
+.then(schoolsData => {
 
-  schoolsData = sData;
-
-  // عرض المدارس
-  L.geoJSON(schoolsData, {
+  schoolsLayer = L.geoJSON(schoolsData, {
     pointToLayer: function(feature, latlng){
       return L.circleMarker(latlng, {
         radius: 5,
         color: "blue",
         fillColor: "blue",
         fillOpacity: 0.9
-      }).bindPopup(
-        "<b>مدرسة</b><br>" +
-        (feature.properties.name || "بدون اسم")
-      );
+      }).bindPopup("<b>مدرسة</b>");
     }
   }).addTo(map);
 
-  // =======================
-  // 5️⃣ التحليل لكل تجمع
-  // =======================
-  tgLayer.eachLayer(layer => {
-
-    var schoolsCount = 0;
-
-    schoolsData.features.forEach(school => {
-      if (turf.booleanPointInPolygon(school, layer.feature)) {
-        schoolsCount++;
-      }
-    });
-
-    var p = layer.feature.properties || {};
-
-    var name =
-      p["اسم_التجمع"] ||
-      p["name"] ||
-      p["NAME"] ||
-      "غير معروف";
-
-    var population =
-      p["تقديرات_السكان_2020"] ||
-      p["population"] ||
-      0;
-
-    var neededSchools = Math.ceil(population / 3000);
-    var deficit = neededSchools - schoolsCount;
-
-    var status = "مكتفي";
-    var color = "#2ecc71";
-
-    if (deficit > 0) {
-      status = "يوجد نقص مدارس";
-      color = "#e74c3c";
-
-      var center = turf.centroid(layer.feature);
-
-      var landArea = 5000;
-      var pricePerMeter = 120;
-      var price = landArea * pricePerMeter + " $";
-
-      L.marker([
-        center.geometry.coordinates[1],
-        center.geometry.coordinates[0]
-      ])
-      .addTo(map)
-      .bindPopup(
-        "<b>📍 موقع مقترح لبناء مدرسة</b><hr>" +
-        "<b>التجمع:</b> " + name + "<br>" +
-        "<b>المساحة:</b> " + landArea + " م²<br>" +
-        "<b>سعر تقريبي:</b> " + price
-      );
-    }
-
-    layer.setStyle({
-      fillColor: color,
-      fillOpacity: 0.6
-    });
-
-    layer.bindPopup(
-      "<b>تجمع سكني</b><hr>" +
-      "<b>الاسم:</b> " + name + "<br>" +
-      "<b>عدد السكان:</b> " + population + "<br>" +
-      "<b>عدد المدارس:</b> " + schoolsCount + "<br>" +
-      "<b>المطلوب:</b> " + neededSchools + "<br>" +
-      "<b>الحالة:</b> " + status
-    );
-
-  });
-
+  analyzeSettlements(schoolsData);
 });
 }
 
 // =======================
-// 6️⃣ تحميل المستوطنات (إضافة فقط – بدون أي تفاعل)
+// 5️⃣ التحليل لكل تجمع
 // =======================
+function analyzeSettlements(schoolsData){
+
+settlementsLayer.eachLayer(layer => {
+
+  var schoolsCount = 0;
+
+  schoolsData.features.forEach(school => {
+    if (turf.booleanPointInPolygon(school, layer.feature)) {
+      schoolsCount++;
+    }
+  });
+
+  var p = layer.feature.properties || {};
+
+  var name =
+    p["اسم_التجمع"] ||
+    p["name"] ||
+    p["NAME"] ||
+    "غير معروف";
+
+  var population =
+    p["تقديرات_السكان_2020"] ||
+    p["population"] ||
+    0;
+
+  var neededSchools = Math.ceil(population / 3000);
+  var deficit = neededSchools - schoolsCount;
+
+  var status = "مكتفي";
+  var color = "#2ecc71";
+
+  if (deficit > 0) {
+    status = "يوجد نقص مدارس";
+    color = "#e74c3c";
+
+    var center = turf.centroid(layer.feature);
+
+    var landArea = 5000;
+    var pricePerMeter = 120;
+    var price = landArea * pricePerMeter + " $";
+
+    L.marker([
+      center.geometry.coordinates[1],
+      center.geometry.coordinates[0]
+    ])
+    .bindPopup(
+      "<b>📍 موقع مقترح لبناء مدرسة</b><hr>" +
+      "<b>التجمع:</b> " + name + "<br>" +
+      "<b>المساحة:</b> " + landArea + " م²<br>" +
+      "<b>سعر تقريبي:</b> " + price
+    )
+    .addTo(proposedLayer);
+  }
+
+  layer.setStyle({
+    fillColor: color,
+    fillOpacity: 0.6
+  });
+
+  layer.bindPopup(
+    "<b>تجمع سكني</b><hr>" +
+    "<b>الاسم:</b> " + name + "<br>" +
+    "<b>عدد السكان:</b> " + population + "<br>" +
+    "<b>عدد المدارس:</b> " + schoolsCount + "<br>" +
+    "<b>المطلوب:</b> " + neededSchools + "<br>" +
+    "<b>الحالة:</b> " + status
+  );
+
+});
+
+proposedLayer.addTo(map);
+loadColonies();
+}
+
+// =======================
+// 6️⃣ تحميل المستوطنات (عرض فقط)
+// =======================
+function loadColonies(){
+
 fetch("settlements.geojson")
 .then(res => res.json())
 .then(data => {
 
-  L.geoJSON(data, {
+  coloniesLayer = L.geoJSON(data, {
     style: {
       color: "red",
       weight: 2,
@@ -176,8 +179,19 @@ fetch("settlements.geojson")
     }
   }).addTo(map);
 
+  // =======================
+  // 7️⃣ Layer Control
+  // =======================
+  L.control.layers(null, {
+    "التجمعات السكنية": settlementsLayer,
+    "المدارس": schoolsLayer,
+    "المستوطنات": coloniesLayer,
+    "مواقع مقترحة لمدارس": proposedLayer
+  }).addTo(map);
 });
+}
 </script>
 
 </body>
 </html>
+
