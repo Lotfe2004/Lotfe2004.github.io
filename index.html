@@ -13,7 +13,6 @@ body { margin:0; font-family:Arial }
 </head>
 
 <body>
-
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -21,23 +20,22 @@ body { margin:0; font-family:Arial }
 
 <script>
 // =======================
-// 1️⃣ إنشاء الخريطة
+// 1️⃣ الخريطة
 // =======================
 var map = L.map("map").setView([31.9, 35.2], 11);
 
-// =======================
-// 2️⃣ خريطة الأساس
-// =======================
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap"
 }).addTo(map);
 
-// متغيرات عامة
-var tgLayer;
-var schoolsData;
+// =======================
+// 2️⃣ طبقات
+// =======================
+var tgLayer, schoolsLayer, settlementsLayer, proposedLayer;
+proposedLayer = L.layerGroup();
 
 // =======================
-// 3️⃣ تحميل التجمعات السكنية
+// 3️⃣ التجمعات السكنية
 // =======================
 fetch("tgmooat.json")
 .then(res => res.json())
@@ -47,125 +45,135 @@ fetch("tgmooat.json")
     style: {
       color: "#333",
       weight: 1,
-      fillColor: "#dddddd",
-      fillOpacity: 0.4
+      fillColor: "#cccccc",
+      fillOpacity: 0.5
     }
   }).addTo(map);
 
   map.fitBounds(tgLayer.getBounds());
 
   loadSchools();
+  loadSettlements();
 });
 
 // =======================
-// 4️⃣ تحميل المدارس + التحليل
+// 4️⃣ المدارس
 // =======================
 function loadSchools(){
-
 fetch("Ramallah_Schools.json")
 .then(res => res.json())
-.then(sData => {
+.then(data => {
 
-  schoolsData = sData;
-
-  // عرض المدارس
-  L.geoJSON(schoolsData, {
-    pointToLayer: function(feature, latlng){
-      return L.circleMarker(latlng, {
+  schoolsLayer = L.geoJSON(data, {
+    pointToLayer: (f, latlng) =>
+      L.circleMarker(latlng, {
         radius: 5,
         color: "blue",
-        fillColor: "blue",
         fillOpacity: 0.9
-      }).bindPopup(
-        "<b>مدرسة</b><br>" +
-        (feature.properties.name || "بدون اسم")
-      );
-    }
+      }).bindPopup("<b>مدرسة</b>")
   }).addTo(map);
 
-  // =======================
-  // 5️⃣ التحليل لكل تجمع
-  // =======================
-  tgLayer.eachLayer(layer => {
+  analyze();
+});
+}
 
-    var schoolsCount = 0;
+// =======================
+// 5️⃣ المستوطنات
+// =======================
+function loadSettlements(){
+fetch("settlements.geojson")
+.then(res => res.json())
+.then(data => {
 
-    schoolsData.features.forEach(school => {
-      if (turf.booleanPointInPolygon(school, layer.feature)) {
-        schoolsCount++;
-      }
+  settlementsLayer = L.geoJSON(data, {
+    style: {
+      color: "red",
+      fillColor: "red",
+      fillOpacity: 0.4
+    }
+  }).addTo(map);
+});
+}
+
+// =======================
+// 6️⃣ التحليل + الاقتراح
+// =======================
+function analyze(){
+
+tgLayer.eachLayer(layer => {
+
+  let schoolsCount = 0;
+
+  schoolsLayer.eachLayer(s => {
+    if (turf.booleanPointInPolygon(s.feature, layer.feature)) {
+      schoolsCount++;
+    }
+  });
+
+  let p = layer.feature.properties || {};
+  let name = p["اسم_التجمع"] || p["name"] || "غير معروف";
+  let pop  = p["تقديرات_السكان_2020"] || 0;
+
+  let needed = Math.ceil(pop / 3000);
+  let deficit = needed - schoolsCount;
+
+  let status = "مكتفي";
+  let color = "#2ecc71";
+
+  if (deficit > 0) {
+    status = "نقص مدارس";
+    color = "#e74c3c";
+
+    let center = turf.centroid(layer.feature);
+
+    // فحص البعد عن المستوطنات (1000م)
+    let safe = true;
+    settlementsLayer.eachLayer(set => {
+      let d = turf.distance(center, turf.centroid(set.feature), {units:"kilometers"});
+      if (d < 1) safe = false;
     });
 
-    // قراءة الاسم والسكان بذكاء
-    var p = layer.feature.properties || {};
-
-    var name =
-      p["اسم_التجمع"] ||
-      p["name"] ||
-      p["NAME"] ||
-      "غير معروف";
-
-    var population =
-      p["تقديرات_السكان_2020"] ||
-      p["population"] ||
-      0;
-
-    // معيار: مدرسة لكل 3000 نسمة
-    var neededSchools = Math.ceil(population / 3000);
-    var deficit = neededSchools - schoolsCount;
-
-    var status = "مكتفي";
-    var color = "#2ecc71";
-
-    // =======================
-    // 6️⃣ في حال وجود نقص
-    // =======================
-    var price = "-";
-
-    if (deficit > 0) {
-      status = "يوجد نقص مدارس";
-      color = "#e74c3c";
-
-      // اقتراح موقع = مركز التجمع
-      var center = turf.centroid(layer.feature);
-
-      // تثمين تقريبي (عرض نهائي)
-      var landArea = 5000; // م²
-      var pricePerMeter = 120; // دولار
-      price = landArea * pricePerMeter + " $";
+    if (safe) {
+      let area = 5000;
+      let price = area * 120;
 
       L.marker([
         center.geometry.coordinates[1],
         center.geometry.coordinates[0]
       ])
-      .addTo(map)
       .bindPopup(
-        "<b>📍 موقع مقترح لبناء مدرسة</b><hr>" +
+        "<b>📍 موقع مقترح</b><hr>" +
         "<b>التجمع:</b> " + name + "<br>" +
-        "<b>المساحة:</b> " + landArea + " م²<br>" +
-        "<b>سعر تقريبي:</b> " + price
-      );
+        "<b>المساحة:</b> " + area + " م²<br>" +
+        "<b>التكلفة:</b> " + price + " $"
+      )
+      .addTo(proposedLayer);
     }
+  }
 
-    // تلوين التجمع
-    layer.setStyle({
-      fillColor: color,
-      fillOpacity: 0.6
-    });
+  layer.setStyle({fillColor: color});
 
-    // Popup التجمع
-    layer.bindPopup(
-      "<b>تجمع سكني</b><hr>" +
-      "<b>الاسم:</b> " + name + "<br>" +
-      "<b>عدد السكان:</b> " + population + "<br>" +
-      "<b>عدد المدارس:</b> " + schoolsCount + "<br>" +
-      "<b>المطلوب:</b> " + neededSchools + "<br>" +
-      "<b>الحالة:</b> " + status
-    );
-
-  });
-
+  layer.bindPopup(
+    "<b>تجمع سكني</b><hr>" +
+    "<b>الاسم:</b> " + name + "<br>" +
+    "<b>السكان:</b> " + pop + "<br>" +
+    "<b>المدارس:</b> " + schoolsCount + "<br>" +
+    "<b>الحالة:</b> " + status
+  );
 });
+
+proposedLayer.addTo(map);
+
+// =======================
+// 7️⃣ التحكم بالطبقات
+// =======================
+L.control.layers(null, {
+  "التجمعات السكنية": tgLayer,
+  "المدارس": schoolsLayer,
+  "المستوطنات": settlementsLayer,
+  "مواقع مقترحة": proposedLayer
+}).addTo(map);
+
 }
 </script>
 
