@@ -35,6 +35,7 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 // متغيرات عامة
 var tgLayer;
 var schoolsData;
+var proposedSites = [];
 
 // =======================
 // 3️⃣ تحميل التجمعات السكنية
@@ -54,7 +55,6 @@ fetch("tgmooat.json")
 
     map.fitBounds(tgLayer.getBounds());
 
-    // بعد تحميل التجمعات نحمّل المدارس
     loadSchools();
   });
 
@@ -69,7 +69,7 @@ fetch("Ramallah_Schools.json")
 
     schoolsData = sData;
 
-    // عرض المدارس كنقاط
+    // عرض المدارس
     L.geoJSON(schoolsData, {
       pointToLayer: function(feature, latlng){
         return L.circleMarker(latlng, {
@@ -81,7 +81,7 @@ fetch("Ramallah_Schools.json")
     }).addTo(map);
 
     // =======================
-    // 5️⃣ حساب النقص + التلوين + اقتراح موقع
+    // 5️⃣ التحليل + اقتراح موقع
     // =======================
     tgLayer.eachLayer(function(layer){
 
@@ -96,7 +96,6 @@ fetch("Ramallah_Schools.json")
       var name = layer.feature.properties["اسم_التجمع"] || "غير معروف";
       var pop  = layer.feature.properties["تقديرات_السكان_2020"] || 0;
 
-      // كل 3000 نسمة = مدرسة
       var needed = Math.ceil(pop / 3000);
       var deficit = needed - count;
 
@@ -107,21 +106,27 @@ fetch("Ramallah_Schools.json")
         status = "يوجد نقص مدارس";
         color = "red";
 
-        // ===== اقتراح موقع بناء مدرسة =====
-        var center = turf.centroid(layer.feature);
+        // اقتراح موقع واحد فقط لكل تجمع
+        if (!layer._siteProposed) {
 
-        L.marker([
-          center.geometry.coordinates[1],
-          center.geometry.coordinates[0]
-        ])
-        .addTo(map)
-        .bindPopup(
-          "<b>📍 موقع مقترح لبناء مدرسة</b><br>" +
-          "التجمع يعاني من نقص مدارس"
-        );
+          var center = turf.centroid(layer.feature);
+
+          var marker = L.marker([
+            center.geometry.coordinates[1],
+            center.geometry.coordinates[0]
+          ])
+          .addTo(map)
+          .bindPopup(
+            "<b>📍 موقع مقترح لبناء مدرسة</b><br>" +
+            "<b>التجمع:</b> " + name
+          );
+
+          proposedSites.push(marker);
+          layer._siteProposed = true;
+        }
       }
 
-      // تغيير لون التجمع
+      // تلوين التجمع
       layer.setStyle({
         fillColor: color,
         fillOpacity: 0.6
@@ -143,3 +148,4 @@ fetch("Ramallah_Schools.json")
 
 </body>
 </html>
+
