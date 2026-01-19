@@ -96,7 +96,6 @@ fetch("Ramallah_Schools.json")
       }
     });
 
-    // قراءة الاسم والسكان بذكاء
     var p = layer.feature.properties || {};
 
     var name =
@@ -110,29 +109,21 @@ fetch("Ramallah_Schools.json")
       p["population"] ||
       0;
 
-    // معيار: مدرسة لكل 3000 نسمة
     var neededSchools = Math.ceil(population / 3000);
     var deficit = neededSchools - schoolsCount;
 
     var status = "مكتفي";
     var color = "#2ecc71";
 
-    // =======================
-    // 6️⃣ في حال وجود نقص
-    // =======================
-    var price = "-";
-
     if (deficit > 0) {
       status = "يوجد نقص مدارس";
       color = "#e74c3c";
 
-      // اقتراح موقع = مركز التجمع
       var center = turf.centroid(layer.feature);
 
-      // تثمين تقريبي (عرض نهائي)
-      var landArea = 5000; // م²
-      var pricePerMeter = 120; // دولار
-      price = landArea * pricePerMeter + " $";
+      var landArea = 5000;
+      var pricePerMeter = 120;
+      var price = landArea * pricePerMeter + " $";
 
       L.marker([
         center.geometry.coordinates[1],
@@ -147,13 +138,11 @@ fetch("Ramallah_Schools.json")
       );
     }
 
-    // تلوين التجمع
     layer.setStyle({
       fillColor: color,
       fillOpacity: 0.6
     });
 
-    // Popup التجمع
     layer.bindPopup(
       "<b>تجمع سكني</b><hr>" +
       "<b>الاسم:</b> " + name + "<br>" +
@@ -167,6 +156,27 @@ fetch("Ramallah_Schools.json")
 
 });
 }
+
+// =======================
+// 6️⃣ تحميل المستوطنات (إضافة فقط – بدون أي تفاعل)
+// =======================
+fetch("settlements.geojson")
+.then(res => res.json())
+.then(data => {
+
+  L.geoJSON(data, {
+    style: {
+      color: "red",
+      weight: 2,
+      fillColor: "red",
+      fillOpacity: 0.3
+    },
+    onEachFeature: function(feature, layer){
+      layer.bindPopup("<b>مستوطنة</b>");
+    }
+  }).addTo(map);
+
+});
 </script>
 
 </body>
