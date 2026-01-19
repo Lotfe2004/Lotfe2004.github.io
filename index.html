@@ -19,15 +19,6 @@ body { margin:0; font-family:Arial }
   z-index:1000;
   text-align:center;
 }
-table {
-  width:100%;
-  border-collapse:collapse;
-}
-td {
-  border:1px solid #ccc;
-  padding:4px;
-  font-size:12px;
-}
 </style>
 </head>
 
@@ -48,6 +39,10 @@ td {
 var map = L.map("map").setView([31.9, 35.2], 11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
+// ===== Pane للتجمعات (تحت باقي الطبقات) =====
+map.createPane("tgPane");
+map.getPane("tgPane").style.zIndex = 200;
+
 // ================= LOAD DATA =================
 Promise.all([
   fetch("tgmooat.json").then(r=>r.json()),
@@ -66,36 +61,36 @@ let settlements = data[2];
 let built = data[3];
 let roads = data[4];
 
-// ================= SHOW OTHER LAYERS =================
-// المدارس
-L.geoJSON(schools,{
-  pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:"blue",fillOpacity:0.8})
-}).addTo(map);
-
-// المناطق المبنية
+// ================= OTHER LAYERS (فوق التجمعات) =================
 L.geoJSON(built,{style:{color:"#999",fillOpacity:0.3}}).addTo(map);
 
-// الطرق
 L.geoJSON(roads,{style:{color:"orange",weight:2}}).addTo(map);
 
-// المستوطنات
 L.geoJSON(settlements,{style:{color:"red",fillOpacity:0.4}}).addTo(map);
 
-// ================= SEARCH =================
-L.Control.geocoder({
-  defaultMarkGeocode:false
-}).on("markgeocode",function(e){
-  map.fitBounds(e.geocode.bbox);
+L.geoJSON(schools,{
+  pointToLayer:(f,ll)=>L.circleMarker(ll,{
+    radius:5,
+    color:"blue",
+    fillOpacity:0.8
+  })
 }).addTo(map);
 
+// ================= SEARCH =================
+L.Control.geocoder({ defaultMarkGeocode:false })
+.on("markgeocode",e=>map.fitBounds(e.geocode.bbox))
+.addTo(map);
+
 // ================= MAIN LAYER: TGMO3AT =================
-L.geoJSON(tgmooat,{
- style:{color:"black",fillOpacity:0.2},
+let tgLayer = L.geoJSON(tgmooat,{
+ pane: "tgPane", // 👈 تحت باقي اللير
+ style:{ color:"black", weight:1, fillOpacity:0.2 },
+
  onEachFeature:function(feature, layer){
 
    layer.on("click", function(){
 
-     // ===== BASIC ANALYSIS =====
+     // ===== ANALYSIS =====
      let pop = feature.properties["تقديرات_السكان_2020"] || 0;
      let needed = Math.ceil(pop / 3000);
 
@@ -107,9 +102,9 @@ L.geoJSON(tgmooat,{
 
      let html = `
      <b>${feature.properties["اسم_التجمع"]}</b><br>
-     👥 عدد السكان: ${pop}<br>
-     🏫 عدد المدارس: ${schoolCount}<br>
-     📊 المدارس المطلوبة: ${needed}<br>
+     👥 السكان: ${pop}<br>
+     🏫 المدارس: ${schoolCount}<br>
+     📊 المطلوب: ${needed}<br>
      ⚠️ الحالة: ${deficit ? "يوجد نقص" : "مكتفي"}
      `;
 
@@ -170,7 +165,7 @@ L.geoJSON(tgmooat,{
 }).addTo(map);
 
 // ضبط الإطار
-map.fitBounds(L.geoJSON(tgmooat).getBounds());
+map.fitBounds(tgLayer.getBounds());
 }
 </script>
 
