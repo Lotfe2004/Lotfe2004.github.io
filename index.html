@@ -19,13 +19,43 @@ body { margin:0; font-family:Arial }
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
-// إنشاء الخريطة
+// 1️⃣ إنشاء الخريطة
 var map = L.map("map").setView([31.9, 35.2], 11);
 
-// إضافة خريطة الأساس
+// 2️⃣ إضافة خريطة الأساس
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap"
 }).addTo(map);
+
+// 3️⃣ تحميل طبقة التجمعات السكنية
+fetch("tgmooat.json")
+  .then(function(response){
+    return response.json();
+  })
+  .then(function(data){
+
+    var tgLayer = L.geoJSON(data, {
+      style: {
+        color: "black",
+        weight: 1,
+        fillColor: "#7fcdbb",
+        fillOpacity: 0.5
+      },
+
+      onEachFeature: function (feature, layer) {
+        var name = feature.properties["اسم_التجمع"];
+        var pop  = feature.properties["تقديرات_السكان_2020"];
+
+        layer.bindPopup(
+          "<b>اسم التجمع:</b> " + name + "<br>" +
+          "<b>عدد السكان:</b> " + pop
+        );
+      }
+    }).addTo(map);
+
+    // تكبير الخريطة على التجمعات
+    map.fitBounds(tgLayer.getBounds());
+  });
 </script>
 
 </body>
