@@ -11,7 +11,7 @@
 body { margin:0; font-family:Arial }
 #map { height:100vh }
 
-/* Legend */
+/* Legend + Info */
 .legend {
   background: white;
   padding: 10px;
@@ -44,7 +44,7 @@ var map = L.map("map").setView([31.9, 35.2], 11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
 // =======================
-// 2️⃣ Icons
+// 2️⃣ أيقونات
 // =======================
 var schoolIcon = L.icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/167/167707.png",
@@ -52,12 +52,11 @@ var schoolIcon = L.icon({
 });
 
 // =======================
-// 3️⃣ Layers
+// 3️⃣ المتغيرات
 // =======================
 var settlementsLayer, schoolsLayer, proposedLayer = L.layerGroup();
 var areaALayer, areaBLayer, areaCLayer, areaCData;
 var roadsLayer, wadisLayer, naturalLayer, militaryLayer;
-var hospitalsLayer, clinicsLayer, wellsLayer;
 var outpostsLayer, coloniesLayer, quarriesLayer;
 
 // =======================
@@ -65,25 +64,22 @@ var outpostsLayer, coloniesLayer, quarriesLayer;
 // =======================
 fetch("area_A.geojson").then(r=>r.json()).then(d=>{
   areaALayer = L.geoJSON(d,{style:{color:"#4caf50",fillOpacity:0.2}})
-    .addTo(map)
-    .bindPopup("Area A");
+  .addTo(map).bindPopup("Area A");
 });
 
 fetch("Area_B.geojson").then(r=>r.json()).then(d=>{
   areaBLayer = L.geoJSON(d,{style:{color:"#ffeb3b",fillOpacity:0.2}})
-    .addTo(map)
-    .bindPopup("Area B");
+  .addTo(map).bindPopup("Area B");
 });
 
 fetch("area_C (1).geojson").then(r=>r.json()).then(d=>{
   areaCData = d;
   areaCLayer = L.geoJSON(d,{style:{color:"#f44336",fillOpacity:0.2}})
-    .addTo(map)
-    .bindPopup("Area C");
+  .addTo(map).bindPopup("Area C");
 });
 
 // =======================
-// 5️⃣ التجمعات السكنية
+// 5️⃣ التجمعات
 // =======================
 fetch("tgmooat.json").then(r=>r.json()).then(d=>{
   settlementsLayer = L.geoJSON(d,{
@@ -119,7 +115,7 @@ fetch("Ramallah_Schools.json").then(r=>r.json()).then(data=>{
 }
 
 // =======================
-// 7️⃣ التحليل + التثمين + منع Area C
+// 7️⃣ التحليل + الاقتراح + التثمين
 // =======================
 function analyze(schoolsData){
 
@@ -172,7 +168,7 @@ settlementsLayer.eachLayer(layer=>{
   layer.bindPopup(
     "<b>تجمع سكني</b><hr>"+
     "الاسم: "+name+"<br>"+
-    "السكان: "+pop+"<br>"+
+    "عدد السكان: "+pop+"<br>"+
     "عدد المدارس: "+count+"<br>"+
     "المطلوب: "+needed
   );
@@ -269,16 +265,52 @@ legend.onAdd=function(){
 legend.addTo(map);
 
 // =======================
-// 🔍 Search (اسم التجمع)
+// 🔍 Search – التجمعات
 // =======================
-var search=new L.Control.Search({
-  layer:settlementsLayer,
-  propertyName:"اسم_التجمع",
-  marker:false,
-  moveToLocation:(latlng)=>map.setView(latlng,13)
+var searchSettlements = new L.Control.Search({
+  layer: settlementsLayer,
+  propertyName: "اسم_التجمع",
+  marker: false
 });
-search.on("search:locationfound",e=>e.layer.openPopup());
-map.addControl(search);
+searchSettlements.on("search:locationfound",e=>e.layer.openPopup());
+map.addControl(searchSettlements);
+
+// =======================
+// 🔍 Search – المدارس
+// =======================
+var searchSchools = new L.Control.Search({
+  layer: schoolsLayer,
+  propertyName: "NAME",
+  marker: false
+});
+searchSchools.on("search:locationfound",e=>e.layer.openPopup());
+map.addControl(searchSchools);
+
+// =======================
+// 📍 إظهار الإحداثيات
+// =======================
+map.on("click",function(e){
+  L.popup()
+   .setLatLng(e.latlng)
+   .setContent(
+     "<b>الإحداثيات</b><br>"+
+     "Lat: "+e.latlng.lat.toFixed(5)+"<br>"+
+     "Lng: "+e.latlng.lng.toFixed(5)
+   )
+   .openOn(map);
+});
+
+// =======================
+// 🔄 زر إعادة العرض
+// =======================
+var reset=L.control({position:"topleft"});
+reset.onAdd=function(){
+  var d=L.DomUtil.create("div","leaflet-bar leaflet-control");
+  d.innerHTML="<a href='#'>🏠</a>";
+  d.onclick=function(){ map.fitBounds(settlementsLayer.getBounds()); };
+  return d;
+};
+reset.addTo(map);
 
 </script>
 </body>
