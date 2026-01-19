@@ -72,6 +72,13 @@ fetch("tgmooat.json")
       weight: 1,
       fillColor: "#dddddd",
       fillOpacity: 0.4
+    },
+    onEachFeature: function(feature, layer){
+      let p = feature.properties || {};
+      layer.bindPopup(
+        "<b>تجمع سكني</b><hr>" +
+        "الاسم: " + (p["اسم_التجمع"] || p["NAME"] || "غير معروف")
+      );
     }
   }).addTo(map);
 
@@ -182,15 +189,23 @@ simpleLayer("military.geojson",
   "منطقة عسكرية", l => militaryLayer = l
 );
 
-// كسارات
-simpleLayer("quarries.geojson",
-  {style:{color:"#795548", fillOpacity:0.5}},
-  "كسارة", l => quarriesLayer = l
-);
+// =======================
+// الكسارات (نقطة سوداء كبيرة – لا لبس)
+// =======================
+fetch("quarries.geojson")
+.then(r=>r.json())
+.then(d=>{
+  quarriesLayer = L.geoJSON(d,{
+    pointToLayer:(f,latlng)=>L.circleMarker(latlng,{
+      radius:8,
+      color:"#000",
+      fillColor:"#000",
+      fillOpacity:0.8
+    }).bindPopup("<b>كسارة</b>")
+  }).addTo(map);
+});
 
-// =======================
 // مستشفيات
-// =======================
 fetch("hospitals.geojson")
 .then(r=>r.json())
 .then(d=>{
@@ -200,9 +215,7 @@ fetch("hospitals.geojson")
   }).addTo(map);
 });
 
-// =======================
 // عيادات
-// =======================
 fetch("clinics.geojson")
 .then(r=>r.json())
 .then(d=>{
@@ -212,9 +225,7 @@ fetch("clinics.geojson")
   }).addTo(map);
 });
 
-// =======================
 // آبار
-// =======================
 fetch("Wells.geojson")
 .then(r=>r.json())
 .then(d=>{
@@ -224,9 +235,7 @@ fetch("Wells.geojson")
   }).addTo(map);
 });
 
-// =======================
-// بؤر (دائرة بنفسجية)
-// =======================
+// بؤر
 fetch("outposts.geojson")
 .then(r=>r.json())
 .then(d=>{
@@ -241,13 +250,20 @@ fetch("outposts.geojson")
 });
 
 // =======================
-// مستوطنات
+// المستوطنات (Popup مفعل)
 // =======================
 fetch("settlements.geojson")
 .then(r=>r.json())
 .then(d=>{
   coloniesLayer = L.geoJSON(d,{
-    style:{color:"red", weight:2, fillOpacity:0.3}
+    style:{color:"red", weight:2, fillOpacity:0.3},
+    onEachFeature:function(feature,layer){
+      let p = feature.properties || {};
+      layer.bindPopup(
+        "<b>مستوطنة</b><hr>" +
+        (p["NAME"] || p["name"] || "غير معروف")
+      );
+    }
   }).addTo(map);
 
   layerControl();
