@@ -2,13 +2,13 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>التجمعات السكنية – Ramallah</title>
+<title>Web GIS – Ramallah Schools Project</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 
 <style>
-body { margin:0; font-family: Arial; }
-#map { height:100vh; }
+body { margin:0; font-family:Arial }
+#map { height:100vh }
 </style>
 </head>
 
@@ -17,64 +17,133 @@ body { margin:0; font-family: Arial; }
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
 <script>
 // =======================
-// إنشاء الخريطة
+// 1️⃣ إنشاء الخريطة
 // =======================
 var map = L.map("map").setView([31.9, 35.2], 11);
 
-// خريطة الأساس
+// =======================
+// 2️⃣ خريطة الأساس
+// =======================
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap"
 }).addTo(map);
 
+// متغيرات عامة
+var tgLayer;
+var schoolsData;
+var proposedSites = [];
+
 // =======================
-// تحميل التجمعات السكنية
+// 3️⃣ تحميل التجمعات السكنية
 // =======================
 fetch("tgmooat.json")
-.then(res => res.json())
-.then(data => {
+  .then(response => response.json())
+  .then(function(tgData){
 
-  L.geoJSON(data, {
-    style: {
-      color: "#333",
-      weight: 1,
-      fillColor: "#f4a261",
-      fillOpacity: 0.6
-    },
+    tgLayer = L.geoJSON(tgData, {
+      style: {
+        color: "black",
+        weight: 1,
+        fillColor: "#cccccc",
+        fillOpacity: 0.4
+      }
+    }).addTo(map);
 
-    onEachFeature: function (feature, layer) {
+    map.fitBounds(tgLayer.getBounds());
 
-      // قراءة اسم التجمع من أي حقل موجود
-      var p = feature.properties || {};
+    loadSchools();
+  });
 
-      var name =
-        p.name ||
-        p.NAME ||
-        p.Name ||
-        p.village ||
-        p.Village ||
-        p.arabic ||
-        p.Arabic ||
-        p.ar_name ||
-        "غير معروف";
+// =======================
+// 4️⃣ تحميل المدارس + التحليل
+// =======================
+function loadSchools(){
 
-      // Popup
-      var popupContent = `
-        <b>تجمع سكني</b><hr>
-        <b>الاسم:</b> ${name}<br>
-      `;
+fetch("Ramallah_Schools.json")
+  .then(response => response.json())
+  .then(function(sData){
 
-      layer.bindPopup(popupContent);
-    }
-  }).addTo(map);
+    schoolsData = sData;
 
-})
-.catch(err => {
-  alert("خطأ في تحميل ملف التجمعات");
-  console.error(err);
-});
+    // عرض المدارس
+    L.geoJSON(schoolsData, {
+      pointToLayer: function(feature, latlng){
+        return L.circleMarker(latlng, {
+          radius: 5,
+          color: "blue",
+          fillOpacity: 0.8
+        });
+      }
+    }).addTo(map);
+
+    // =======================
+    // 5️⃣ التحليل + اقتراح موقع
+    // =======================
+    tgLayer.eachLayer(function(layer){
+
+      var count = 0;
+
+      schoolsData.features.forEach(function(school){
+        if (turf.booleanPointInPolygon(school, layer.feature)) {
+          count++;
+        }
+      });
+
+      var name = layer.feature.properties["اسم_التجمع"] || "غير معروف";
+      var pop  = layer.feature.properties["تقديرات_السكان_2020"] || 0;
+
+      var needed = Math.ceil(pop / 3000);
+      var deficit = needed - count;
+
+      var status = "مكتفي";
+      var color = "green";
+
+      if (deficit > 0) {
+        status = "يوجد نقص مدارس";
+        color = "red";
+
+        // اقتراح موقع واحد فقط لكل تجمع
+        if (!layer._siteProposed) {
+
+          var center = turf.centroid(layer.feature);
+
+          var marker = L.marker([
+            center.geometry.coordinates[1],
+            center.geometry.coordinates[0]
+          ])
+          .addTo(map)
+          .bindPopup(
+            "<b>📍 موقع مقترح لبناء مدرسة</b><br>" +
+            "<b>التجمع:</b> " + name
+          );
+
+          proposedSites.push(marker);
+          layer._siteProposed = true;
+        }
+      }
+
+      // تلوين التجمع
+      layer.setStyle({
+        fillColor: color,
+        fillOpacity: 0.6
+      });
+
+      // Popup التجمع
+      layer.bindPopup(
+        "<b>اسم التجمع:</b> " + name + "<br>" +
+        "<b>عدد السكان:</b> " + pop + "<br>" +
+        "<b>عدد المدارس:</b> " + count + "<br>" +
+        "<b>المدارس المطلوبة:</b> " + needed + "<br>" +
+        "<b>الحالة:</b> " + status
+      );
+    });
+
+  });
+}
 </script>
 
 </body>
