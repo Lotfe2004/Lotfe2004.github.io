@@ -48,22 +48,18 @@ fetch("tgmooat.json")
         color: "black",
         weight: 1,
         fillColor: "#7fcdbb",
-        fillOpacity: 0.5
-      },
-      onEachFeature: function(feature, layer){
-        // Popup مؤقت (سيتحدث لاحقًا)
-        layer.bindPopup("تحميل البيانات...");
+        fillOpacity: 0.4
       }
     }).addTo(map);
 
     map.fitBounds(tgLayer.getBounds());
 
-    // بعد تحميل التجمعات، نحمل المدارس
+    // بعد تحميل التجمعات نحمّل المدارس
     loadSchools();
   });
 
 // =======================
-// 4️⃣ تحميل المدارس + الحساب
+// 4️⃣ تحميل المدارس + التحليل
 // =======================
 function loadSchools(){
 
@@ -84,7 +80,9 @@ fetch("Ramallah_Schools.json")
       }
     }).addTo(map);
 
-    // تحديث Popup لكل تجمع
+    // =======================
+    // 5️⃣ حساب النقص وتلوين التجمعات
+    // =======================
     tgLayer.eachLayer(function(layer){
 
       var count = 0;
@@ -96,12 +94,33 @@ fetch("Ramallah_Schools.json")
       });
 
       var name = layer.feature.properties["اسم_التجمع"] || "غير معروف";
-      var pop  = layer.feature.properties["تقديرات_السكان_2020"] || "غير متوفر";
+      var pop  = layer.feature.properties["تقديرات_السكان_2020"] || 0;
 
+      // كل 3000 نسمة = مدرسة
+      var needed = Math.ceil(pop / 3000);
+      var deficit = needed - count;
+
+      var status = "مكتفي";
+      var color = "green";
+
+      if (deficit > 0) {
+        status = "يوجد نقص مدارس";
+        color = "red";
+      }
+
+      // تغيير اللون
+      layer.setStyle({
+        fillColor: color,
+        fillOpacity: 0.6
+      });
+
+      // Popup
       layer.bindPopup(
         "<b>اسم التجمع:</b> " + name + "<br>" +
         "<b>عدد السكان:</b> " + pop + "<br>" +
-        "<b>عدد المدارس:</b> " + count
+        "<b>عدد المدارس:</b> " + count + "<br>" +
+        "<b>المدارس المطلوبة:</b> " + needed + "<br>" +
+        "<b>الحالة:</b> " + status
       );
     });
 
