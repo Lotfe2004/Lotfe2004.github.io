@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>تحليل احتياج المدارس حسب التجمع</title>
+<title>تحليل احتياج المدارس – محافظة رام الله</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
@@ -18,6 +18,15 @@ body { margin:0; font-family:Arial }
   padding:10px;
   z-index:1000;
   text-align:center;
+}
+table {
+  width:100%;
+  border-collapse:collapse;
+}
+td {
+  border:1px solid #ccc;
+  padding:4px;
+  font-size:12px;
 }
 </style>
 </head>
@@ -36,15 +45,16 @@ body { margin:0; font-family:Arial }
 
 <script>
 // ================= MAP =================
-var map = L.map("map").setView([31.9,35.2],11);
+var map = L.map("map").setView([31.9, 35.2], 11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
 // ================= LOAD DATA =================
 Promise.all([
- fetch("tgmooat.json").then(r=>r.json()),
- fetch("Ramallah_Schools.json").then(r=>r.json()),
- fetch("settlements.geojson").then(r=>r.json()),
- fetch("built_up.json").then(r=>r.json())
+  fetch("tgmooat.json").then(r=>r.json()),
+  fetch("Ramallah_Schools.json").then(r=>r.json()),
+  fetch("settlements.geojson").then(r=>r.json()),
+  fetch("built_up.json").then(r=>r.json()),
+  fetch("roads.json").then(r=>r.json())
 ]).then(init);
 
 // ================= INIT =================
@@ -54,21 +64,38 @@ let tgmooat = data[0];
 let schools = data[1];
 let settlements = data[2];
 let built = data[3];
+let roads = data[4];
 
-// البحث عن التجمع
+// ================= SHOW OTHER LAYERS =================
+// المدارس
+L.geoJSON(schools,{
+  pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:"blue",fillOpacity:0.8})
+}).addTo(map);
+
+// المناطق المبنية
+L.geoJSON(built,{style:{color:"#999",fillOpacity:0.3}}).addTo(map);
+
+// الطرق
+L.geoJSON(roads,{style:{color:"orange",weight:2}}).addTo(map);
+
+// المستوطنات
+L.geoJSON(settlements,{style:{color:"red",fillOpacity:0.4}}).addTo(map);
+
+// ================= SEARCH =================
 L.Control.geocoder({
   defaultMarkGeocode:false
 }).on("markgeocode",function(e){
   map.fitBounds(e.geocode.bbox);
 }).addTo(map);
 
-// ================= التجمعات فقط =================
+// ================= MAIN LAYER: TGMO3AT =================
 L.geoJSON(tgmooat,{
  style:{color:"black",fillOpacity:0.2},
  onEachFeature:function(feature, layer){
 
    layer.on("click", function(){
 
+     // ===== BASIC ANALYSIS =====
      let pop = feature.properties["تقديرات_السكان_2020"] || 0;
      let needed = Math.ceil(pop / 3000);
 
@@ -80,39 +107,61 @@ L.geoJSON(tgmooat,{
 
      let html = `
      <b>${feature.properties["اسم_التجمع"]}</b><br>
-     👥 السكان: ${pop}<br>
-     🏫 المدارس: ${schoolCount}<br>
-     📊 المطلوب: ${needed}<br>
+     👥 عدد السكان: ${pop}<br>
+     🏫 عدد المدارس: ${schoolCount}<br>
+     📊 المدارس المطلوبة: ${needed}<br>
      ⚠️ الحالة: ${deficit ? "يوجد نقص" : "مكتفي"}
      `;
 
+     // ===== IF DEFICIT =====
      if(deficit){
+
        let center = turf.centroid(feature);
 
-       // التحقق من البعد عن المستوطنات
-       let safe = true;
+       // البعد عن المستوطنات
+       let farFromSettlements = true;
        settlements.features.forEach(s=>{
-         if(turf.distance(center,s,{units:"kilometers"}) < 1){
-           safe = false;
+         if(turf.distance(center, s, {units:"kilometers"}) < 0.8){
+           farFromSettlements = false;
          }
        });
 
-       if(safe){
-         let price = 100;
-         if(turf.booleanPointInPolygon(center,built)) price += 40;
+       // داخل منطقة مبنية
+       let insideBuilt = turf.booleanPointInPolygon(center, built);
 
-         L.marker(
-           [center.geometry.coordinates[1], center.geometry.coordinates[0]]
-         ).addTo(map);
+       // قريب من طريق
+       let nearRoad = false;
+       roads.features.forEach(r=>{
+         if(turf.distance(center, r, {units:"kilometers"}) < 0.5){
+           nearRoad = true;
+         }
+       });
 
-         html += `
-         <hr>
-         🏗️ موقع مقترح داخل التجمع<br>
-         💰 تثمين الأرض: ${price} $ / م²
-         `;
-       } else {
-         html += `<br>⚠️ لا يوجد موقع آمن بسبب قرب المستوطنات`;
-       }
+       // ===== SUITABILITY =====
+       let suitable = farFromSettlements && insideBuilt && nearRoad;
+
+       // ===== LAND VALUATION =====
+       let price = 100;
+       if(insideBuilt) price += 30;
+       if(nearRoad) price += 20;
+       if(suitable) price += 20;
+       if(!farFromSettlements) price -= 50;
+
+       // ===== SHOW PROPOSED SITE =====
+       L.marker(
+         [center.geometry.coordinates[1], center.geometry.coordinates[0]]
+       ).addTo(map)
+        .bindPopup(`
+          <b>📍 موقع مقترح لبناء مدرسة</b><br>
+          🧭 التقييم: ${suitable ? "مناسب" : "غير مناسب"}<br>
+          💰 السعر التقديري: ${price} $ / م²
+        `);
+
+       html += `
+       <hr>
+       🧭 صلاحية الموقع: ${suitable ? "مناسب" : "غير مناسب"}<br>
+       💰 السعر التقديري: ${price} $ / م²
+       `;
      }
 
      layer.bindPopup(html).openPopup();
@@ -120,6 +169,7 @@ L.geoJSON(tgmooat,{
  }
 }).addTo(map);
 
+// ضبط الإطار
 map.fitBounds(L.geoJSON(tgmooat).getBounds());
 }
 </script>
