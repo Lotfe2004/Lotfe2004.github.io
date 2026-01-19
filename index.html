@@ -57,6 +57,47 @@ fetch("tgmooat.json")
     map.fitBounds(tgLayer.getBounds());
   });
 </script>
+  // =======================
+// 4️⃣ تحميل طبقة المدارس
+// =======================
+fetch("Ramallah_Schools.json")
+  .then(response => response.json())
+  .then(function(schoolsData){
+
+    // عرض المدارس كنقاط
+    var schoolsLayer = L.geoJSON(schoolsData, {
+      pointToLayer: function(feature, latlng){
+        return L.circleMarker(latlng, {
+          radius: 5,
+          color: "blue",
+          fillOpacity: 0.8
+        });
+      }
+    }).addTo(map);
+
+    // تحديث Popup التجمعات لإظهار عدد المدارس
+    tgLayer.eachLayer(function(layer){
+      var count = 0;
+
+      schoolsData.features.forEach(function(school){
+        if (turf.booleanPointInPolygon(school, layer.feature)) {
+          count++;
+        }
+      });
+
+      var name = layer.feature.properties["اسم_التجمع"];
+      var pop  = layer.feature.properties["تقديرات_السكان_2020"];
+
+      layer.bindPopup(
+        "<b>اسم التجمع:</b> " + name + "<br>" +
+        "<b>عدد السكان:</b> " + pop + "<br>" +
+        "<b>عدد المدارس:</b> " + count
+      );
+    });
+
+  });
+
 
 </body>
 </html>
+
