@@ -182,11 +182,23 @@ simpleLayer("military.geojson",
   "منطقة عسكرية", l => militaryLayer = l
 );
 
-// كسارات
-simpleLayer("quarries.geojson",
-  {style:{color:"#795548", fillOpacity:0.5}},
-  "كسارة", l => quarriesLayer = l
-);
+// =======================
+// الكسارات (تمييز واضح ✨)
+// =======================
+fetch("quarries.geojson")
+.then(r=>r.json())
+.then(d=>{
+  quarriesLayer = L.geoJSON(d,{
+    style:{
+      color:"#4e342e",
+      weight:2,
+      dashArray:"2,6",
+      fillColor:"#bcaaa4",
+      fillOpacity:0.4
+    },
+    onEachFeature:(f,l)=>l.bindPopup("<b>كسارة</b>")
+  }).addTo(map);
+});
 
 // =======================
 // مستشفيات
@@ -225,7 +237,7 @@ fetch("Wells.geojson")
 });
 
 // =======================
-// بؤر (دائرة بنفسجية)
+// بؤر (دوائر بنفسجية)
 // =======================
 fetch("outposts.geojson")
 .then(r=>r.json())
