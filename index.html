@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>تحليل احتياج المدارس – محافظة رام الله</title>
+<title>Web GIS – تحليل احتياج المدارس</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
@@ -10,6 +10,7 @@
 <style>
 body { margin:0; font-family:Arial }
 #map { height:100vh }
+
 .header {
   position:absolute;
   top:0; left:0; right:0;
@@ -19,16 +20,32 @@ body { margin:0; font-family:Arial }
   z-index:1000;
   text-align:center;
 }
+
+.legend {
+  position:absolute;
+  bottom:20px;
+  right:20px;
+  background:white;
+  padding:10px;
+  font-size:13px;
+  z-index:1000;
+}
 </style>
 </head>
 
 <body>
 
 <div class="header">
-<h3>تحليل احتياج المدارس حسب التجمعات السكنية</h3>
+<h3>تحليل احتياج المدارس واقتراح مواقع بنائها – محافظة رام الله</h3>
 </div>
 
 <div id="map"></div>
+
+<div class="legend">
+<b>دلالة الألوان</b><br>
+🟢 مكتفي<br>
+🔴 يوجد نقص
+</div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
@@ -39,7 +56,7 @@ body { margin:0; font-family:Arial }
 var map = L.map("map").setView([31.9, 35.2], 11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-// ===== Pane للتجمعات (تحت باقي الطبقات) =====
+// Pane للتجمعات (تحت)
 map.createPane("tgPane");
 map.getPane("tgPane").style.zIndex = 200;
 
@@ -61,110 +78,96 @@ let settlements = data[2];
 let built = data[3];
 let roads = data[4];
 
-// ================= OTHER LAYERS (فوق التجمعات) =================
+// ===== Other Layers =====
 L.geoJSON(built,{style:{color:"#999",fillOpacity:0.3}}).addTo(map);
-
-L.geoJSON(roads,{style:{color:"orange",weight:2}}).addTo(map);
-
+L.geoJSON(roads,{style:{color:"orange"}}).addTo(map);
 L.geoJSON(settlements,{style:{color:"red",fillOpacity:0.4}}).addTo(map);
-
 L.geoJSON(schools,{
-  pointToLayer:(f,ll)=>L.circleMarker(ll,{
-    radius:5,
-    color:"blue",
-    fillOpacity:0.8
-  })
+ pointToLayer:(f,ll)=>L.circleMarker(ll,{radius:5,color:"blue",fillOpacity:0.8})
 }).addTo(map);
 
-// ================= SEARCH =================
-L.Control.geocoder({ defaultMarkGeocode:false })
+// ===== Search =====
+L.Control.geocoder({defaultMarkGeocode:false})
 .on("markgeocode",e=>map.fitBounds(e.geocode.bbox))
 .addTo(map);
 
-// ================= MAIN LAYER: TGMO3AT =================
+// ===== Main Analysis =====
 let tgLayer = L.geoJSON(tgmooat,{
- pane: "tgPane", // 👈 تحت باقي اللير
- style:{ color:"black", weight:1, fillOpacity:0.2 },
+ pane:"tgPane",
+ style: f => {
+   let pop = f.properties["تقديرات_السكان_2020"] || 0;
+   let needed = Math.ceil(pop / 3000);
+   let count = schools.features.filter(s =>
+     turf.booleanPointInPolygon(s, f)
+   ).length;
 
- onEachFeature:function(feature, layer){
+   return {
+     color:"black",
+     fillOpacity:0.25,
+     fillColor: count < needed ? "red" : "green"
+   };
+ },
 
-   layer.on("click", function(){
+ onEachFeature:(feature, layer)=>{
 
-     // ===== ANALYSIS =====
-     let pop = feature.properties["تقديرات_السكان_2020"] || 0;
-     let needed = Math.ceil(pop / 3000);
+   let pop = feature.properties["تقديرات_السكان_2020"] || 0;
+   let needed = Math.ceil(pop / 3000);
+   let count = schools.features.filter(s =>
+     turf.booleanPointInPolygon(s, feature)
+   ).length;
 
-     let schoolCount = schools.features.filter(s =>
-       turf.booleanPointInPolygon(s, feature)
-     ).length;
+   let deficit = count < needed;
 
-     let deficit = schoolCount < needed;
+   let html = `
+   <b>${feature.properties["اسم_التجمع"]}</b><br>
+   👥 السكان: ${pop}<br>
+   🏫 المدارس: ${count}<br>
+   📊 المطلوب: ${needed}<br>
+   ⚠️ الحالة: ${deficit ? "يوجد نقص" : "مكتفي"}
+   `;
 
-     let html = `
-     <b>${feature.properties["اسم_التجمع"]}</b><br>
-     👥 السكان: ${pop}<br>
-     🏫 المدارس: ${schoolCount}<br>
-     📊 المطلوب: ${needed}<br>
-     ⚠️ الحالة: ${deficit ? "يوجد نقص" : "مكتفي"}
+   if(deficit){
+     let center = turf.centroid(feature);
+
+     let farFromSettlements = settlements.features.every(s =>
+       turf.distance(center, s, {units:"kilometers"}) > 0.8
+     );
+
+     let insideBuilt = turf.booleanPointInPolygon(center, built);
+
+     let nearRoad = roads.features.some(r =>
+       turf.distance(center, r, {units:"kilometers"}) < 0.5
+     );
+
+     let suitable = farFromSettlements && insideBuilt && nearRoad;
+
+     let price = 100;
+     if(insideBuilt) price += 30;
+     if(nearRoad) price += 20;
+     if(suitable) price += 20;
+     if(!farFromSettlements) price -= 50;
+
+     L.marker([
+       center.geometry.coordinates[1],
+       center.geometry.coordinates[0]
+     ]).addTo(map)
+     .bindPopup(`
+       <b>📍 موقع مقترح لبناء مدرسة</b><br>
+       🧭 التقييم: ${suitable ? "مناسب" : "غير مناسب"}<br>
+       💰 سعر الأرض: ${price} $ / م²
+     `);
+
+     html += `
+     <hr>
+     🧭 صلاحية الموقع: ${suitable ? "مناسب" : "غير مناسب"}<br>
+     💰 سعر الأرض التقديري: ${price} $ / م²
      `;
+   }
 
-     // ===== IF DEFICIT =====
-     if(deficit){
-
-       let center = turf.centroid(feature);
-
-       // البعد عن المستوطنات
-       let farFromSettlements = true;
-       settlements.features.forEach(s=>{
-         if(turf.distance(center, s, {units:"kilometers"}) < 0.8){
-           farFromSettlements = false;
-         }
-       });
-
-       // داخل منطقة مبنية
-       let insideBuilt = turf.booleanPointInPolygon(center, built);
-
-       // قريب من طريق
-       let nearRoad = false;
-       roads.features.forEach(r=>{
-         if(turf.distance(center, r, {units:"kilometers"}) < 0.5){
-           nearRoad = true;
-         }
-       });
-
-       // ===== SUITABILITY =====
-       let suitable = farFromSettlements && insideBuilt && nearRoad;
-
-       // ===== LAND VALUATION =====
-       let price = 100;
-       if(insideBuilt) price += 30;
-       if(nearRoad) price += 20;
-       if(suitable) price += 20;
-       if(!farFromSettlements) price -= 50;
-
-       // ===== SHOW PROPOSED SITE =====
-       L.marker(
-         [center.geometry.coordinates[1], center.geometry.coordinates[0]]
-       ).addTo(map)
-        .bindPopup(`
-          <b>📍 موقع مقترح لبناء مدرسة</b><br>
-          🧭 التقييم: ${suitable ? "مناسب" : "غير مناسب"}<br>
-          💰 السعر التقديري: ${price} $ / م²
-        `);
-
-       html += `
-       <hr>
-       🧭 صلاحية الموقع: ${suitable ? "مناسب" : "غير مناسب"}<br>
-       💰 السعر التقديري: ${price} $ / م²
-       `;
-     }
-
-     layer.bindPopup(html).openPopup();
-   });
+   layer.bindPopup(html);
  }
 }).addTo(map);
 
-// ضبط الإطار
 map.fitBounds(tgLayer.getBounds());
 }
 </script>
