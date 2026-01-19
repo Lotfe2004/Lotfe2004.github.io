@@ -2,10 +2,9 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>Web GIS – التجمعات السكنية</title>
+<title>Web GIS – Ramallah Schools Analysis</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
-
 <style>
 body { margin:0; font-family:Arial }
 #map { height:100vh }
@@ -13,100 +12,117 @@ body { margin:0; font-family:Arial }
 </head>
 
 <body>
-
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
 <script>
 // ================== الخريطة ==================
 var map = L.map("map").setView([31.9, 35.2], 11);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "© OpenStreetMap"
-}).addTo(map);
+// ================== Layer Groups ==================
+var settlementsLayer = L.layerGroup().addTo(map);
+var schoolsLayer = L.layerGroup().addTo(map);
+var proposedLayer = L.layerGroup().addTo(map);
 
-// ================== التجمعات السكنية ==================
+// ================== تحميل المدارس ==================
+fetch("Ramallah_Schools.json")
+.then(r=>r.json())
+.then(schoolsData=>{
+
+  L.geoJSON(schoolsData,{
+    pointToLayer:(f,ll)=>L.circleMarker(ll,{
+      radius:5,
+      color:"blue",
+      fillOpacity:0.9
+    }),
+    onEachFeature:(f,l)=>{
+      l.bindPopup("<b>🏫 مدرسة</b>");
+    }
+  }).addTo(schoolsLayer);
+
+  loadSettlements(schoolsData);
+});
+
+// ================== تحميل التجمعات + التحليل ==================
+function loadSettlements(schoolsData){
+
 fetch("tgmooat.json")
-.then(res => res.json())
-.then(data => {
+.then(r=>r.json())
+.then(data=>{
 
-  L.geoJSON(data, {
+  L.geoJSON(data,{
+    style:{color:"#000",weight:1,fillOpacity:0.6},
 
-    style: function () {
-      return {
-        color: "#000",
-        weight: 1,
-        fillColor: "#f4a742",
-        fillOpacity: 0.7
-      };
-    },
-
-    onEachFeature: function (feature, layer) {
+    onEachFeature:function(feature,layer){
 
       let props = feature.properties || {};
 
-      // محاولة قراءة الاسم من أي حقل
       let name =
-        props.name ||
-        props.NAME ||
-        props.village ||
-        props.Town ||
-        props.LOC_NAME ||
-        props.AR_NAME ||
-        "غير معروف";
+        props.name || props.NAME || props.village || props.AR_NAME || "غير معروف";
 
-      // محاولة قراءة عدد السكان
       let population =
-        props.population ||
-        props.POPULATION ||
-        props.pop ||
-        props.POP ||
-        "غير متوفر";
+        props.population || props.POPULATION || props.POP || 0;
 
-      // بناء popup ديناميكي
-      let popupContent =
-        "<b>تجمع سكني</b><hr>" +
-        "<b>الاسم:</b> " + name + "<br>" +
-        "<b>عدد السكان:</b> " + population + "<br><br>" +
-        "<b>الخصائص الكاملة:</b><br>";
-
-      // عرض كل الحقول (للتأكد)
-      for (let key in props) {
-        popupContent += key + " : " + props[key] + "<br>";
-      }
-
-      layer.bindPopup(popupContent);
-
-      // تفاعل بصري
-      layer.on({
-        mouseover: function () {
-          layer.setStyle({
-            weight: 3,
-            fillOpacity: 0.9
-          });
-        },
-        mouseout: function () {
-          layer.setStyle({
-            weight: 1,
-            fillOpacity: 0.7
-          });
-        }
+      // ===== حساب عدد المدارس =====
+      let schoolCount = 0;
+      schoolsData.features.forEach(s=>{
+        if(turf.booleanPointInPolygon(s,feature)) schoolCount++;
       });
 
+      // ===== تحديد الحاجة =====
+      let needed = Math.ceil(population / 3000);
+      let deficit = needed - schoolCount;
+
+      let status = deficit>0 ? "❌ يوجد نقص مدارس" : "✅ كافٍ";
+      let color  = deficit>0 ? "red" : "green";
+      layer.setStyle({fillColor:color});
+
+      // ===== Popup التجمع =====
+      layer.bindPopup(
+        "<b>🏘 تجمع سكني</b><br>" +
+        "<b>الاسم:</b> "+name+"<br>" +
+        "<b>عدد السكان:</b> "+population+"<br>" +
+        "<b>عدد المدارس:</b> "+schoolCount+"<br>" +
+        "<b>المدارس المطلوبة:</b> "+needed+"<br>" +
+        "<b>الحالة:</b> "+status
+      );
+
+      // ===== اقتراح موقع مدرسة + تثمين =====
+      if(deficit>0){
+        let center = turf.centroid(feature);
+
+        let price =
+          population>20000 ? "مرتفع 💰" :
+          population>10000 ? "متوسط 💰" :
+          "منخفض 💰";
+
+        L.marker(
+          [center.geometry.coordinates[1],center.geometry.coordinates[0]]
+        )
+        .addTo(proposedLayer)
+        .bindPopup(
+          "<b>📍 موقع مقترح لبناء مدرسة</b><br>" +
+          "<b>التجمع:</b> "+name+"<br>" +
+          "<b>سبب الاختيار:</b> نقص مدارس<br>" +
+          "<b>تثمين الأرض:</b> "+price
+        );
+      }
     }
+  }).addTo(settlementsLayer);
 
-  }).addTo(map);
-
-})
-.catch(err => {
-  alert("خطأ في تحميل ملف التجمعات");
-  console.error(err);
 });
-</script>
+}
 
+// ================== التحكم بالطبقات ==================
+L.control.layers(null,{
+  "التجمعات السكنية": settlementsLayer,
+  "المدارس": schoolsLayer,
+  "مواقع مقترحة": proposedLayer
+}).addTo(map);
+
+</script>
 </body>
 </html>
-
-</html>
-
