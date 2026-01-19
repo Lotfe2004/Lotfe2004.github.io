@@ -2,43 +2,111 @@
 <html lang="ar">
 <head>
 <meta charset="utf-8">
-<title>Test – Tجمعات</title>
+<title>Web GIS – التجمعات السكنية</title>
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+
 <style>
-#map { height:100vh; }
+body { margin:0; font-family:Arial }
+#map { height:100vh }
 </style>
 </head>
 
 <body>
+
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
+// ================== الخريطة ==================
 var map = L.map("map").setView([31.9, 35.2], 11);
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap"
+}).addTo(map);
 
+// ================== التجمعات السكنية ==================
 fetch("tgmooat.json")
 .then(res => res.json())
 .then(data => {
+
   L.geoJSON(data, {
-    style: {
-      color: "black",
-      weight: 1,
-      fillColor: "orange",
-      fillOpacity: 0.6
+
+    style: function () {
+      return {
+        color: "#000",
+        weight: 1,
+        fillColor: "#f4a742",
+        fillOpacity: 0.7
+      };
     },
+
     onEachFeature: function (feature, layer) {
-      layer.bindPopup(
-        "<b>تجمع سكني</b><br>" +
-        "الاسم: " + (feature.properties.name || "غير معروف")
-      );
+
+      let props = feature.properties || {};
+
+      // محاولة قراءة الاسم من أي حقل
+      let name =
+        props.name ||
+        props.NAME ||
+        props.village ||
+        props.Town ||
+        props.LOC_NAME ||
+        props.AR_NAME ||
+        "غير معروف";
+
+      // محاولة قراءة عدد السكان
+      let population =
+        props.population ||
+        props.POPULATION ||
+        props.pop ||
+        props.POP ||
+        "غير متوفر";
+
+      // بناء popup ديناميكي
+      let popupContent =
+        "<b>تجمع سكني</b><hr>" +
+        "<b>الاسم:</b> " + name + "<br>" +
+        "<b>عدد السكان:</b> " + population + "<br><br>" +
+        "<b>الخصائص الكاملة:</b><br>";
+
+      // عرض كل الحقول (للتأكد)
+      for (let key in props) {
+        popupContent += key + " : " + props[key] + "<br>";
+      }
+
+      layer.bindPopup(popupContent);
+
+      // تفاعل بصري
+      layer.on({
+        mouseover: function () {
+          layer.setStyle({
+            weight: 3,
+            fillOpacity: 0.9
+          });
+        },
+        mouseout: function () {
+          layer.setStyle({
+            weight: 1,
+            fillOpacity: 0.7
+          });
+        }
+      });
+
     }
+
   }).addTo(map);
+
 })
-.catch(err => alert("خطأ في تحميل التجمعات"));
+.catch(err => {
+  alert("خطأ في تحميل ملف التجمعات");
+  console.error(err);
+});
 </script>
 
 </body>
 </html>
+
+</html>
+
