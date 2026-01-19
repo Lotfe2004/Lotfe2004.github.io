@@ -9,11 +9,15 @@
 <style>
 body { margin:0; font-family:Arial }
 #map { height:100vh }
+.legend {
+  background:white;
+  padding:10px;
+  line-height:18px;
+}
 </style>
 </head>
 
 <body>
-
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -29,41 +33,60 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap"
 }).addTo(map);
 
+// =======================
+// متغيرات عامة
+// =======================
 var tgLayer, schoolsData, roadsData;
-var settlementsBuffer = null;
+var settlementsBuffer;
 
 // =======================
 // المستوطنات + Buffer
 // =======================
 fetch("settlements.geojson")
-.then(r => r.json())
-.then(data => {
-  L.geoJSON(data,{style:{color:"purple",weight:2,fillOpacity:0.4}}).addTo(map);
+.then(r=>r.json())
+.then(data=>{
+  L.geoJSON(data,{
+    style:{color:"purple",weight:2,fillOpacity:0.4}
+  }).addTo(map).bindPopup("مستوطنة");
+
   settlementsBuffer = turf.buffer(data,1000,{units:"meters"});
+
   L.geoJSON(settlementsBuffer,{
-    style:{color:"red",dashArray:"5,5",fillOpacity:0.1}
-  }).addTo(map);
+    style:{color:"red",dashArray:"5,5",fillOpacity:0.05}
+  }).addTo(map).bindPopup("منطقة مرفوضة للبناء (Buffer)");
 });
 
 // =======================
 // الطرق
 // =======================
 fetch("roads.json")
-.then(r => r.json())
-.then(data => {
+.then(r=>r.json())
+.then(data=>{
   roadsData = data;
-  L.geoJSON(data,{style:{color:"#444",weight:2}}).addTo(map);
+  L.geoJSON(data,{
+    style:{color:"#444",weight:2}
+  }).addTo(map).bindPopup("طريق");
 });
 
 // =======================
 // التجمعات
 // =======================
 fetch("tgmooat.json")
-.then(r => r.json())
-.then(data => {
+.then(r=>r.json())
+.then(data=>{
   tgLayer = L.geoJSON(data,{
-    style:{color:"black",weight:1,fillOpacity:0.4}
+    style:{
+      color:"black",
+      weight:1,
+      fillOpacity:0.3
+    },
+    onEachFeature:function(feature,layer){
+      layer.on("click", function(){
+        map.fitBounds(layer.getBounds());
+      });
+    }
   }).addTo(map);
+
   map.fitBounds(tgLayer.getBounds());
   loadSchools();
 });
@@ -74,42 +97,46 @@ fetch("tgmooat.json")
 function loadSchools(){
 
 fetch("Ramallah_Schools.json")
-.then(r => r.json())
-.then(data => {
-
+.then(r=>r.json())
+.then(data=>{
   schoolsData = data;
 
   L.geoJSON(data,{
-    pointToLayer:(f,latlng)=>L.circleMarker(latlng,{
-      radius:5,color:"blue",fillOpacity:0.8
-    })
+    pointToLayer:(f,latlng)=>
+      L.circleMarker(latlng,{radius:5,color:"blue",fillOpacity:0.8}),
+    onEachFeature:(f,l)=>l.bindPopup("مدرسة")
   }).addTo(map);
 
+  // =======================
+  // التحليل
+  // =======================
   tgLayer.eachLayer(function(layer){
 
-    let count = 0;
+    let schoolCount = 0;
     schoolsData.features.forEach(s=>{
-      if(turf.booleanPointInPolygon(s,layer.feature)) count++;
+      if(turf.booleanPointInPolygon(s,layer.feature)) schoolCount++;
     });
 
     let name = layer.feature.properties["اسم_التجمع"] || "غير معروف";
     let pop  = layer.feature.properties["تقديرات_السكان_2020"] || 0;
     let needed = Math.ceil(pop/3000);
-    let deficit = needed - count;
+    let deficit = needed - schoolCount;
 
-    let color = deficit>0 ? "red" : "green";
-    layer.setStyle({fillColor:color,fillOpacity:0.6});
+    let status = deficit>0 ? "يوجد نقص مدارس" : "مكتفي";
+    let fillColor = deficit>0 ? "red" : "green";
+
+    layer.setStyle({fillColor:fillColor});
 
     layer.bindPopup(
       "<b>اسم التجمع:</b> "+name+"<br>"+
       "<b>عدد السكان:</b> "+pop+"<br>"+
-      "<b>عدد المدارس:</b> "+count+"<br>"+
+      "<b>عدد المدارس:</b> "+schoolCount+"<br>"+
       "<b>المدارس المطلوبة:</b> "+needed+"<br>"+
-      "<b>الحالة:</b> "+(deficit>0?"يوجد نقص":"مكتفي")
+      "<b>الحالة:</b> "+status
     );
 
     // =======================
-    // مواقع مقترحة
+    // موقع البناء + التثمين
     // =======================
     if(deficit>0){
 
@@ -117,42 +144,38 @@ fetch("Ramallah_Schools.json")
       let score = 30; // وجود نقص
 
       // المستوطنات
-      let settlementOK = true;
+      let safeFromSettlements = true;
       if(settlementsBuffer && turf.booleanPointInPolygon(center,settlementsBuffer)){
-        settlementOK = false;
-      } else {
-        score += 40;
-      }
+        safeFromSettlements = false;
+      } else score += 40;
 
       // الطرق
       let roadDist = turf.pointToLineDistance(center,roadsData,{units:"meters"});
-      let roadOK = roadDist<=300;
-      if(roadOK) score += 30;
+      if(roadDist<=300) score += 30;
 
-      // تسعير الأرض
+      // تثمين الأرض
       let price = "منخفض";
       if(score>=80) price="مرتفع";
       else if(score>=60) price="متوسط";
 
-      // لون Marker
-      let iconColor = score>=80?"green":score>=60?"orange":"red";
+      let color = score>=80?"green":score>=60?"orange":"red";
 
       let icon = L.divIcon({
-        html:`<div style="background:${iconColor};width:14px;height:14px;border-radius:50%"></div>`
+        html:`<div style="background:${color};
+             width:16px;height:16px;border-radius:50%"></div>`
       });
 
-      L.marker([
-        center.geometry.coordinates[1],
-        center.geometry.coordinates[0]
-      ],{icon:icon})
-      .addTo(map)
+      L.marker(
+        [center.geometry.coordinates[1],center.geometry.coordinates[0]],
+        {icon:icon}
+      ).addTo(map)
       .bindPopup(
-        "<b>📍 موقع مقترح لبناء مدرسة</b><br>"+
+        "<b>📍 منطقة صالحة لبناء مدرسة</b><br>"+
         "<b>التجمع:</b> "+name+"<br>"+
-        "<b>الملاءمة:</b> "+score+"/100<br>"+
+        "<b>درجة الملاءمة:</b> "+score+"/100<br>"+
         "<b>قرب الطرق:</b> "+Math.round(roadDist)+" م<br>"+
-        "<b>المستوطنات:</b> "+(settlementOK?"بعيد":"قريب")+"<br>"+
-        "<b>سعر الأرض المتوقع:</b> "+price
+        "<b>البعد عن المستوطنات:</b> "+(safeFromSettlements?"آمن":"غير آمن")+"<br>"+
+        "<b>تثمين الأرض:</b> "+price
       );
     }
   });
