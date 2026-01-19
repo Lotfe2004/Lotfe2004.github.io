@@ -29,16 +29,38 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 // =======================
-// 2️⃣ Layers
+// 2️⃣ Icons
+// =======================
+var schoolIcon = L.icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/167/167707.png",
+  iconSize: [25,25]
+});
+
+var hospitalIcon = L.icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/2967/2967350.png",
+  iconSize: [25,25]
+});
+
+var clinicIcon = L.icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/4320/4320337.png",
+  iconSize: [22,22]
+});
+
+var wellIcon = L.icon({
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
+  iconSize: [22,22]
+});
+
+// =======================
+// 3️⃣ Layer Variables
 // =======================
 var settlementsLayer, schoolsLayer, coloniesLayer;
-var proposedLayer = L.layerGroup();
-
 var roadsLayer, hospitalsLayer, clinicsLayer, wellsLayer;
 var wadisLayer, naturalLayer, militaryLayer, outpostsLayer, quarriesLayer;
+var proposedLayer = L.layerGroup();
 
 // =======================
-// 3️⃣ التجمعات
+// 4️⃣ التجمعات السكنية
 // =======================
 fetch("tgmooat.json")
 .then(r => r.json())
@@ -48,7 +70,7 @@ fetch("tgmooat.json")
     style: {
       color: "#333",
       weight: 1,
-      fillColor: "#ddd",
+      fillColor: "#dddddd",
       fillOpacity: 0.4
     }
   }).addTo(map);
@@ -58,7 +80,7 @@ fetch("tgmooat.json")
 });
 
 // =======================
-// 4️⃣ المدارس + التحليل
+// 5️⃣ المدارس + التحليل
 // =======================
 function loadSchools(){
 fetch("Ramallah_Schools.json")
@@ -67,11 +89,8 @@ fetch("Ramallah_Schools.json")
 
   schoolsLayer = L.geoJSON(data, {
     pointToLayer: (f, latlng) =>
-      L.circleMarker(latlng, {
-        radius: 5,
-        color: "blue",
-        fillOpacity: 0.9
-      }).bindPopup("<b>مدرسة</b>")
+      L.marker(latlng, {icon: schoolIcon})
+       .bindPopup("<b>مدرسة</b>")
   }).addTo(map);
 
   analyze(data);
@@ -89,7 +108,7 @@ settlementsLayer.eachLayer(layer => {
 
   let p = layer.feature.properties || {};
   let name = p["اسم_التجمع"] || p["NAME"] || "غير معروف";
-  let pop = p["تقديرات_السكان_2020"] || p["population"] || 0;
+  let pop  = p["تقديرات_السكان_2020"] || p["population"] || 0;
 
   let needed = Math.ceil(pop / 3000);
   let deficit = needed - count;
@@ -100,9 +119,9 @@ settlementsLayer.eachLayer(layer => {
     let c = turf.centroid(layer.feature);
     L.marker([c.geometry.coordinates[1], c.geometry.coordinates[0]])
     .bindPopup(
-      "<b>📍 موقع مقترح</b><br>" +
+      "<b>📍 موقع مقترح لبناء مدرسة</b><hr>" +
       "التجمع: " + name + "<br>" +
-      "سعر تقريبي: 600000 $"
+      "سعر تقديري: 600000 $"
     ).addTo(proposedLayer);
   }
 
@@ -112,7 +131,7 @@ settlementsLayer.eachLayer(layer => {
     "<b>تجمع سكني</b><hr>" +
     "الاسم: " + name + "<br>" +
     "السكان: " + pop + "<br>" +
-    "المدارس: " + count + "<br>" +
+    "عدد المدارس: " + count + "<br>" +
     "المطلوب: " + needed
   );
 });
@@ -122,27 +141,86 @@ loadOtherLayers();
 }
 
 // =======================
-// 5️⃣ باقي الليرات (عرض فقط)
+// 6️⃣ دالة تحميل آمنة
+// =======================
+function simpleLayer(file, options, popupText, callback){
+fetch(file)
+.then(r => r.json())
+.then(data => {
+  let layer = L.geoJSON(data, options).addTo(map);
+  layer.eachLayer(l => l.bindPopup("<b>"+popupText+"</b>"));
+  callback(layer);
+});
+}
+
+// =======================
+// 7️⃣ باقي الليرات
 // =======================
 function loadOtherLayers(){
 
-simpleLayer("roads.json", {color:"#555"}, "طرق", l => roadsLayer = l);
-simpleLayer("hospitals.geojson", {color:"red"}, "مستشفى", l => hospitalsLayer = l);
-simpleLayer("clinics.geojson", {color:"orange"}, "عيادة", l => clinicsLayer = l);
-simpleLayer("Wells.geojson", {color:"blue"}, "بئر", l => wellsLayer = l);
-simpleLayer("wadis.geojson", {color:"#00bcd4"}, "وادي", l => wadisLayer = l);
-simpleLayer("natural.json", {color:"green"}, "منطقة طبيعية", l => naturalLayer = l);
-simpleLayer("military.geojson", {color:"black"}, "منطقة عسكرية", l => militaryLayer = l);
-simpleLayer("outposts.geojson", {color:"#9c27b0"}, "بؤرة", l => outpostsLayer = l);
-simpleLayer("quarries.geojson", {color:"#795548"}, "كسارة", l => quarriesLayer = l);
+simpleLayer("roads.json",
+  {style:{color:"#555", weight:3, dashArray:"5,5"}},
+  "طريق", l => roadsLayer = l
+);
 
-// المستوطنات
+simpleLayer("wadis.geojson",
+  {style:{color:"#00bcd4", weight:2}},
+  "وادي", l => wadisLayer = l
+);
+
+simpleLayer("natural.json",
+  {style:{color:"green", fillColor:"#81c784", fillOpacity:0.4}},
+  "منطقة طبيعية", l => naturalLayer = l
+);
+
+simpleLayer("military.geojson",
+  {style:{color:"black", fillColor:"#b71c1c", fillOpacity:0.4}},
+  "منطقة عسكرية", l => militaryLayer = l
+);
+
+simpleLayer("outposts.geojson",
+  {style:{color:"#9c27b0", fillOpacity:0.5}},
+  "بؤرة", l => outpostsLayer = l
+);
+
+simpleLayer("quarries.geojson",
+  {style:{color:"#795548", fillOpacity:0.5}},
+  "كسارة", l => quarriesLayer = l
+);
+
+// مستشفيات
+fetch("hospitals.geojson")
+.then(r=>r.json())
+.then(d=>{
+  hospitalsLayer = L.geoJSON(d,{
+    pointToLayer:(f,latlng)=>L.marker(latlng,{icon:hospitalIcon})
+  }).addTo(map);
+});
+
+// عيادات
+fetch("clinics.geojson")
+.then(r=>r.json())
+.then(d=>{
+  clinicsLayer = L.geoJSON(d,{
+    pointToLayer:(f,latlng)=>L.marker(latlng,{icon:clinicIcon})
+  }).addTo(map);
+});
+
+// آبار
+fetch("Wells.geojson")
+.then(r=>r.json())
+.then(d=>{
+  wellsLayer = L.geoJSON(d,{
+    pointToLayer:(f,latlng)=>L.marker(latlng,{icon:wellIcon})
+  }).addTo(map);
+});
+
+// مستوطنات
 fetch("settlements.geojson")
 .then(r=>r.json())
 .then(d=>{
   coloniesLayer = L.geoJSON(d,{
-    style:{color:"red",weight:2,fillOpacity:0.3},
-    onEachFeature:(f,l)=>l.bindPopup("<b>مستوطنة</b>")
+    style:{color:"red", weight:2, fillOpacity:0.3}
   }).addTo(map);
 
   layerControl();
@@ -150,34 +228,19 @@ fetch("settlements.geojson")
 }
 
 // =======================
-// 6️⃣ دالة عامة آمنة
-// =======================
-function simpleLayer(file, style, label, callback){
-fetch(file)
-.then(r=>r.json())
-.then(d=>{
-  let l = L.geoJSON(d,{
-    style: style,
-    onEachFeature:(f,ly)=>ly.bindPopup("<b>"+label+"</b>")
-  }).addTo(map);
-  callback(l);
-});
-}
-
-// =======================
-// 7️⃣ Layer Control
+// 8️⃣ Layer Control
 // =======================
 function layerControl(){
 L.control.layers(null,{
-  "التجمعات": settlementsLayer,
+  "التجمعات السكنية": settlementsLayer,
   "المدارس": schoolsLayer,
   "المستوطنات": coloniesLayer,
   "مواقع مقترحة": proposedLayer,
   "الطرق": roadsLayer,
-  "مستشفيات": hospitalsLayer,
-  "عيادات": clinicsLayer,
-  "آبار": wellsLayer,
-  "أودية": wadisLayer,
+  "المستشفيات": hospitalsLayer,
+  "العيادات": clinicsLayer,
+  "الآبار": wellsLayer,
+  "الأودية": wadisLayer,
   "مناطق طبيعية": naturalLayer,
   "مناطق عسكرية": militaryLayer,
   "بؤر": outpostsLayer,
@@ -188,5 +251,3 @@ L.control.layers(null,{
 
 </body>
 </html>
-
-
